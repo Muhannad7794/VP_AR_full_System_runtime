@@ -1,0 +1,39 @@
+# =========================================
+# Unreal Engine Core Ignore
+# =========================================
+# These folders are auto-generated and should NEVER be committed.
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# =========================================
+# IDE & OS Files (Visual Studio / VS Code)
+# =========================================
+.vscode/
+.vs/
+*.code-workspace
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.xcworkspace
+*.DS_Store
+Thumbs.db
+
+# =========================================
+# Compiled & Temporary Files
+# =========================================
+*.obj
+*.o
+*.patch
+*.diff
+*.log
+*.crash
+*_BuiltData.uasset
+# =========================================
+# Plugin Specific (Stereolabs / ZED)
+# =========================================
+# If you compile plugins locally, ignore their intermediate/binary folders too
+Plugins/*/Binaries/
+Plugins/*/Intermediate/

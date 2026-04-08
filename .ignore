@@ -1,0 +1,13 @@
+/.vs
+/.vscode
+/Content
+/DerivedDataCache
+/Intermediate
+/Saved
+/Plugins/AdaptiveTracking/Content
+/Plugins/AdaptiveTracking/Intermediate
+/Plugins/Stereolabs/Content
+/Plugins/Stereolabs/Intermediate
+/Plugins/Stereolabs/Shaders
+/Plugins/ZEDLiveLink/Content
+/Plugins/ZEDLiveLink/Intermediate

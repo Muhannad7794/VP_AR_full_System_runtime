@@ -1,0 +1,184 @@
+{
+	"nDisplay":
+	{
+		"description": "",
+		"version": "5.00",
+		"assetPath": "/Game/VP_Tracking_System/5mi13LAB_wall.5mi13LAB_wall",
+		"misc":
+		{
+			"bFollowLocalPlayerCamera": false,
+			"bExitOnEsc": true,
+			"bOverrideViewportsFromExternalConfig": false,
+			"bOverrideTransformsFromExternalConfig": false
+		},
+		"scene":
+		{
+			"xforms":
+			{
+			},
+			"cameras":
+			{
+				"DefaultViewPoint":
+				{
+					"interpupillaryDistance": 6.4000000953674316,
+					"swapEyes": false,
+					"stereoOffset": "none",
+					"parentId": "",
+					"location":
+					{
+						"x": 0,
+						"y": 0,
+						"z": 50
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				}
+			},
+			"screens":
+			{
+				"nDisplayScreen":
+				{
+					"size":
+					{
+						"width": 369.57000732421875,
+						"height": 212.39999389648438
+					},
+					"parentId": "",
+					"location":
+					{
+						"x": 500,
+						"y": 0,
+						"z": 139.19999694824219
+					},
+					"rotation":
+					{
+						"pitch": 0,
+						"yaw": 0,
+						"roll": 0
+					}
+				}
+			}
+		},
+		"cluster":
+		{
+			"primaryNode":
+			{
+				"id": "Node_0",
+				"ports":
+				{
+					"ClusterSync": 41001,
+					"ClusterEventsJson": 41003,
+					"ClusterEventsBinary": 41004
+				}
+			},
+			"sync":
+			{
+				"renderSyncPolicy":
+				{
+					"type": "ethernet",
+					"parameters":
+					{
+					}
+				},
+				"inputSyncPolicy":
+				{
+					"type": "ReplicatePrimary",
+					"parameters":
+					{
+					}
+				}
+			},
+			"network":
+			{
+				"ConnectRetriesAmount": "300",
+				"ConnectRetryDelay": "1000",
+				"GameStartBarrierTimeout": "18000000",
+				"FrameStartBarrierTimeout": "1800000",
+				"FrameEndBarrierTimeout": "1800000",
+				"RenderSyncBarrierTimeout": "1800000"
+			},
+			"failover":
+			{
+				"failoverPolicy": "Disabled"
+			},
+			"nodes":
+			{
+				"Node_0":
+				{
+					"host": "192.168.50.248",
+					"sound": false,
+					"fullScreen": true,
+					"renderHeadless": false,
+					"graphicsAdapter": -1,
+					"textureShare": false,
+					"window":
+					{
+						"x": 5120,
+						"y": 0,
+						"w": 1920,
+						"h": 1080
+					},
+					"postprocess":
+					{
+					},
+					"viewports":
+					{
+						"VP_0":
+						{
+							"camera": "DefaultViewPoint",
+							"bufferRatio": 1,
+							"gPUIndex": 0,
+							"allowCrossGPUTransfer": false,
+							"isShared": false,
+							"overscan":
+							{
+								"bEnabled": false,
+								"mode": "percent",
+								"left": 0,
+								"right": 0,
+								"top": 0,
+								"bottom": 0,
+								"oversize": true
+							},
+							"region":
+							{
+								"x": 0,
+								"y": 0,
+								"w": 1920,
+								"h": 1080
+							},
+							"projectionPolicy":
+							{
+								"type": "Simple",
+								"parameters":
+								{
+									"screen": "nDisplayScreen"
+								}
+							}
+						}
+					},
+					"outputRemap":
+					{
+						"bEnable": false,
+						"dataSource": "mesh",
+						"staticMeshAsset": "",
+						"externalFile": ""
+					}
+				}
+			}
+		},
+		"customParameters":
+		{
+		},
+		"diagnostics":
+		{
+			"simulateLag": false,
+			"minLagTime": 0.0099999997764825821,
+			"maxLagTime": 0.30000001192092896
+		}
+	}
+}
