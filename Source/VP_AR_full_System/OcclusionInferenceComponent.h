@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "NNEModelData.h"
 #include "NNERuntimeCPU.h" 
+#include "Engine/TextureRenderTarget2D.h" // Needed to read camera pixels
 #include "OcclusionInferenceComponent.generated.h"
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -22,12 +23,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Inference")
 	UNNEModelData* ModelData;
 
-	// The node we will trigger in Blueprints every frame
+	// UPDATED: Now takes the live camera feed and a blank texture to draw the mask onto
 	UFUNCTION(BlueprintCallable, Category = "AI Inference")
-	bool RunInference();
+	bool RunInference(UTextureRenderTarget2D* CameraInput, UTextureRenderTarget2D* MaskOutput);
 
 private:
-	// CHANGED: UE 5.4 now uses TSharedPtr instead of TUniquePtr!
+	// The actual initialized neural network inside the engine
 	TSharedPtr<UE::NNE::IModelInstanceCPU> ModelInstance;
 
 	// The raw float arrays holding the pixels going in, and the mask coming out
