@@ -4,7 +4,8 @@
 #include "Components/ActorComponent.h"
 #include "NNEModelData.h"
 #include "NNERuntimeCPU.h" 
-#include "Engine/TextureRenderTarget2D.h" // Needed to read camera pixels
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/Texture2D.h" // For creating the final mask texture
 #include "OcclusionInferenceComponent.generated.h"
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -19,19 +20,19 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	// Drag and drop your imported ONNX Model Data here in the Unreal Editor
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Inference")
 	UNNEModelData* ModelData;
 
-	// UPDATED: Now takes the live camera feed and a blank texture to draw the mask onto
+	// The resulting Black and White Mask that we can use in Unreal materials!
+	UPROPERTY(BlueprintReadOnly, Category = "AI Inference")
+	UTexture2D* FinalMask;
+
+	// Simplified: Now it only needs the camera feed as input
 	UFUNCTION(BlueprintCallable, Category = "AI Inference")
-	bool RunInference(UTextureRenderTarget2D* CameraInput, UTextureRenderTarget2D* MaskOutput);
+	bool RunInference(UTextureRenderTarget2D* CameraInput);
 
 private:
-	// The actual initialized neural network inside the engine
 	TSharedPtr<UE::NNE::IModelInstanceCPU> ModelInstance;
-
-	// The raw float arrays holding the pixels going in, and the mask coming out
 	TArray<float> InputTensor;
 	TArray<float> OutputTensor;
 };
