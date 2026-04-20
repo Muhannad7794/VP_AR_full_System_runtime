@@ -195,6 +195,10 @@
 			"SupportedTargetPlatforms": [
 				"Win64"
 			]
+		},
+		{
+			"Name": "NNERuntimeORT",
+			"Enabled": true
 		}
 	]
 }
