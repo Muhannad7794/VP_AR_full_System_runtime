@@ -1,0 +1,19 @@
+{
+	"OutputFiles": [
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\Module.OWLSpout.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutReceiver.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutReceiverManager.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutSender.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutSenderController.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutSenderManager.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\SpoutModule.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutMediaPlayer.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutMediaPlayerFactory.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutMediaSource.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutMediaSourceActions.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutTextureSample.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\SpoutMediaTracks.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutMediaCapture.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLSpout\\OWLSpoutMediaOutput.cpp.obj"
+	]
+}

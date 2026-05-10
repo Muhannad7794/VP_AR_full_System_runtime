@@ -1,0 +1,13 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlndi\\private\\mediaframework\\input\\owlndimediasourceactions.cpp",
+        "ProvidedModule": "",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealgame\\shipping\\owlndi\\definitions.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlndi\\public\\mediaframework\\input\\owlndimediasourceactions.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

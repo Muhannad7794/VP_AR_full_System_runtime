@@ -192,7 +192,7 @@ void FZEDLiveLinkSource::ProcessReceivedData(TSharedPtr<TArray<uint8>> ReceivedD
 		{
 			if (CurrentTimeStamp - frameData.Timestamp > 0) // clean all subjects when current ts > new ts. It happens if a SVO loops for example.
 			{
-				// ClearSubjects();
+				ClearSubjects();
 			}
 			else if (frameData.SubjectRole == ULiveLinkAnimationRole::StaticClass() && frameData.BodyTrackingState != EZEDTrackingState::Ok)
 			{

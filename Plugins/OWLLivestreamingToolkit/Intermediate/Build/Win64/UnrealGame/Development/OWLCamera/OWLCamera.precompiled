@@ -1,0 +1,14 @@
+{
+	"OutputFiles": [
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\Module.OWLCamera.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLCameraModule.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLCaptureComponent.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLCineCamCapture.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLSnapshotNotifier.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLSnapshotSettings.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLSnapshotUtilities.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLStereoConvergencePlane.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLViewportCapture.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\OWLCamera\\OWLViewportPreview.cpp.obj"
+	]
+}

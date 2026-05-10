@@ -183,7 +183,7 @@
 		},
 		{
 			"Name": "Stereolabs",
-			"Enabled": true
+			"Enabled": false
 		},
 		{
 			"Name": "DisplayClusterLaunch",
@@ -202,6 +202,10 @@
 		},
 		{
 			"Name": "ElectraPlayer",
+			"Enabled": true
+		},
+		{
+			"Name": "RawInput",
 			"Enabled": true
 		}
 	]

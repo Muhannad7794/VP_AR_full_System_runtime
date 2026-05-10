@@ -1,0 +1,27 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\livestreamingtoolkiteditor\\private\\detailcustomisations\\owlfileinputcustomization.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\debuggame\\unrealed\\sharedpch.unrealed.project.nonoptimized.valapi.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\debuggame\\livestreamingtoolkiteditor\\definitions.livestreamingtoolkiteditor.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\livestreamingtoolkiteditor\\private\\detailcustomisations\\owlfileinputcustomization.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\detaillayoutbuilder.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\idetailpropertyrow.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\detailwidgetrow.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\detailcategorybuilder.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\idetailcustomnodebuilder.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\detailbuildertypes.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\propertyeditorcopypaste.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\unrealed\\public\\editordirectories.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\editorstyle\\public\\editorstyleset.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\editor\\propertyeditor\\public\\idetailchildrenbuilder.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\livestreamingtoolkit\\public\\tools\\owlfileinput.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\livestreamingtoolkit\\uht\\owlfileinput.generated.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\developer\\desktopwidgets\\public\\widgets\\input\\sfilepathpicker.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

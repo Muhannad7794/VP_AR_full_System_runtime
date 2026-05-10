@@ -7,8 +7,8 @@ public class VP_AR_full_System : ModuleRules
 	public VP_AR_full_System(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "LiveLinkInterface", "NNE" });
+
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "LiveLinkInterface", "NNE", "RenderCore", "RHI", "Renderer" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 
