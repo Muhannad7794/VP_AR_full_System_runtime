@@ -1,0 +1,16 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlcamera\\private\\owlsnapshotsettings.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\development\\unrealed\\sharedpch.unrealed.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\owlcamera\\definitions.owlcamera.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlcamera\\public\\owlsnapshotsettings.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owlcamera\\uht\\owlsnapshotsettings.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlcamera\\public\\owlcameramodule.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

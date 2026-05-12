@@ -1,0 +1,39 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlcomposure\\private\\owlvideoplaneplacement.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\development\\unrealed\\sharedpch.unrealed.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\owlcomposure\\definitions.owlcomposure.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlcomposure\\public\\owlvideoplaneplacement.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owlcomposure\\uht\\owlvideoplaneplacement.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlbranding\\public\\owlbranddefinitions.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediaassets\\public\\mediatexture.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediautils\\public\\mediasamplequeue.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediasamples.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediatimesource.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediautils\\public\\mediasamplesink.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediatracks.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediautils\\public\\mediasamplesource.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediaaudiosample.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediatexturesample.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\hdrhelper.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\colormanagement\\public\\colormanagementdefines.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\colormanagement\\public\\colorspace.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\mediashaders.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\shaderparameterstruct.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\rendergraphresources.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rhi\\public\\rhitransientresourceallocator.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\rendergraphparameter.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\rendergraphtexturesubresource.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\rendercore\\public\\rendergraphresources.inl",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediabinarysample.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediaoverlaysample.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaassets\\uht\\mediatexture.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlcomposure\\public\\owlcomposure.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

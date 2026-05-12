@@ -1,0 +1,267 @@
+﻿#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/GammaCorrectionCommon.ush"
+#include "/Engine/Private/ColorSpace.ush"
+#include "/Engine/Private/ColorUtils.ush"
+#include "/Engine/Private/TonemapCommon.ush"
+
+// Shader parameters for UYVA alpha blending
+Texture2D RGBTexture;
+Texture2D AlphaTexture;
+SamplerState RGBSampler;
+SamplerState AlphaSampler;
+
+// Shader parameters for NDI conversion (P216/PA16)
+Texture2D<uint> YPlaneTexture;
+Texture2D<uint2> UVPlaneTexture;
+Texture2D<uint> AlphaPlaneTexture;  // Only used for PA16
+uint UVPlanePitch;
+float2 SourceResolution;
+
+// Shader parameters for UYVY conversion
+Texture2D UYVYTexture;
+SamplerState UYVYSamplerB;
+SamplerState UYVYSamplerP;
+float4x4 ColorTransform;
+uint TextureWidth;
+
+// Define explicit point samplers for Y, UV, and Alpha planes
+SamplerState YPlaneSampler;
+SamplerState UVPlaneSampler;
+SamplerState AlphaPlaneSampler;  // Only used for PA16
+
+uint YUVRange;
+
+// Permutation defines (set by ModifyCompilationEnvironment)
+#ifndef CONVERT_GAMMA
+#define CONVERT_GAMMA 0
+#endif
+
+#ifndef HAS_ALPHA_CHANNEL
+#define HAS_ALPHA_CHANNEL 0
+#endif
+
+
+/*
+ Unreal Engine HDR checks
+r.AllowHDR 1
+r.HDR.EnableHDROutput 1
+r.HDR.Display.OutputDevice 3 ( PQ / Dolby )
+r.HDR.Display.ColorGamut 2
+
+*/
+
+// PQ (ST.2084) Transfer Functions
+float3 myLinearToST2084(float3 lin)
+{
+    const float m1 = 0.1593017578125; // = 2610. / 4096. * .25;
+    const float m2 = 78.84375; // = 2523. / 4096. *  128;
+    const float c1 = 0.8359375; // = 2392. / 4096. * 32 - 2413./4096.*32 + 1;
+    const float c2 = 18.8515625; // = 2413. / 4096. * 32;
+    const float c3 = 18.6875; // = 2392. / 4096. * 32;
+    const float C = 10000.;
+
+    float3 L = lin/C;
+    float3 Lm = pow(L, m1);
+    float3 N1 = ( c1 + c2 * Lm );
+    float3 N2 = ( 1.0 + c3 * Lm );
+    float3 N = N1 * rcp(N2);
+    float3 P = pow( N, m2 );
+
+    return P;
+}
+
+float3 myST2084ToLinear(float3 pq)
+{
+    const float m1 = 0.1593017578125; // = 2610. / 4096. * .25;
+    const float m2 = 78.84375; // = 2523. / 4096. *  128;
+    const float c1 = 0.8359375; // = 2392. / 4096. * 32 - 2413./4096.*32 + 1;
+    const float c2 = 18.8515625; // = 2413. / 4096. * 32;
+    const float c3 = 18.6875; // = 2392. / 4096. * 32;
+    const float C = 10000.;
+
+    float3 Np = pow( pq, 1./m2 );
+    float3 L = Np - c1;
+    L = max(0., L);
+    L = L / (c2 - c3 * Np);
+    L = pow( L, 1./m1 );
+    float3 P = L * C;
+
+    return P;
+}
+
+// HLG (Hybrid Log-Gamma) Transfer Functions - ARIB STD-B67
+float3 myLinearToHLG(float3 lin)
+{
+    // HLG constants per ARIB STD-B67 (normalized 0-1 range)
+    const float a = 0.17883277;        // ln(2) * sqrt(3) / 4
+    const float b = 0.28466892;        // 1 - 4*a
+    const float c = 0.55991073;        // 0.5 - a*ln(4*a)
+    const float threshold = 1.0 / 12.0; // Crossover point = 0.083333...
+
+    float3 hlg;
+
+    // Apply hybrid function per channel
+    hlg.x = (lin.x <= threshold) ? sqrt(3.0 * lin.x) : a * log(12.0 * lin.x - b) + c;
+    hlg.y = (lin.y <= threshold) ? sqrt(3.0 * lin.y) : a * log(12.0 * lin.y - b) + c;
+    hlg.z = (lin.z <= threshold) ? sqrt(3.0 * lin.z) : a * log(12.0 * lin.z - b) + c;
+
+    return saturate(hlg);
+}
+
+float3 myHLGToLinear(float3 hlg)
+{
+    const float a = 0.17883277;
+    const float b = 0.28466892;
+    const float c = 0.55991073;
+    const float threshold_hlg = 0.5;
+
+    float3 result;
+
+    // Process each channel individually to avoid vectorization issues
+    result.x = (hlg.x <= threshold_hlg) ?
+               (hlg.x * hlg.x) / 3.0 :
+               (exp((hlg.x - c) / a) + b) / 12.0;
+
+    result.y = (hlg.y <= threshold_hlg) ?
+               (hlg.y * hlg.y) / 3.0 :
+               (exp((hlg.y - c) / a) + b) / 12.0;
+
+    result.z = (hlg.z <= threshold_hlg) ?
+               (hlg.z * hlg.z) / 3.0 :
+               (exp((hlg.z - c) / a) + b) / 12.0;
+
+    return result;
+}
+
+// Shared vertex shader for NDI conversion (simple passthrough)
+void NDIConvertVS(
+    in float4 InPosition : ATTRIBUTE0,
+    in float2 InUV : ATTRIBUTE1,
+    out float2 OutUV : TEXCOORD0,
+    out float4 OutPosition : SV_POSITION)
+{
+    OutPosition = InPosition;
+    OutUV = InUV;
+}
+
+// BT.709 YUV to RGB conversion matrix (constant)
+static const float4x4 YUVToRGBMatrix = float4x4(
+    1.0000,  0.0000,  1.5748,  0.0000,  // R = Y + 1.5748*V
+    1.0000, -0.1873, -0.4681,  0.0000,  // G = Y - 0.1873*U - 0.4681*V
+    1.0000,  1.8556,  0.0000,  0.0000,  // B = Y + 1.8556*U
+    0.0000,  0.0000,  0.0000,  1.0000   // W (unused)
+);
+
+// Shared pixel shader for NDI conversion (P216/PA16)
+float4 PX16ConvertPS(float2 UV : TEXCOORD0) : SV_Target
+{
+    // Calculate pixel coordinates
+    uint2 PixelCoord = uint2(floor(UV * SourceResolution));
+
+    // Y plane sample with bit shifting
+    uint Y_16bit = YPlaneTexture.Load(int3(PixelCoord, 0));
+
+    // UV plane sample - P216 uses 4:2:2 (half width, full height)
+    uint2 UVPixelCoord = uint2(PixelCoord.x / 2, PixelCoord.y);
+    uint2 UV_16bit = UVPlaneTexture.Load(int3(UVPixelCoord, 0));
+
+    float Y = float(Y_16bit) / 65535.0;
+    float U = float(UV_16bit.r) / 65535.0;
+    float V = float(UV_16bit.g) / 65535.0;
+
+    // Center the chroma values around 0
+    U = U - 0.5;
+    V = V - 0.5;
+
+    // Create YUV vector for matrix multiplication
+    float3 yuv = float3(Y, U, V);
+
+    float3 rgb = mul(YUVToRGBMatrix, float4(yuv, 1.0)).rgb;
+#if IS_HLG
+    // float3 rgb_final = myHLGToLinear(rgb);
+    static float reduction = 16./256.;
+    float3 remapped = (rgb - reduction) * 255 / (235. - 16.);
+    #if CONVERT_GAMMA
+    float3 rgb_final = sRGBToLinear(remapped);
+    #else
+        float3 rgb_final = remapped;
+    #endif
+#else
+    static float reduction = 16./256.;
+    float3 remapped = (rgb - reduction) * 255 / (235. - 16.);
+    #if CONVERT_GAMMA
+        float3 rgb_final = sRGBToLinear(remapped);
+    #else
+        float3 rgb_final = remapped;
+    #endif
+#endif
+
+#if HAS_ALPHA_CHANNEL
+    // Process alpha channel for PA16
+    uint AlphaValue_16bit = AlphaPlaneTexture.Load(int3(PixelCoord, 0));
+
+    // Use full 16-bit range (0-65535) instead of bit-shifted 10-bit (0-1023).
+    // Debug analysis showed PA16 alpha data uses the complete 16-bit range,
+    // unlike Y/UV planes which store 10-bit data in upper bits requiring >>6 shift.
+    // Testing confirmed: 0xFFFF alpha data → 1.0 opacity with /65535, not /1023.
+    float AlphaFinal_norm = float(AlphaValue_16bit) / 65535.0f;
+
+    return float4(rgb_final, AlphaFinal_norm);
+#else
+    // No alpha for P216
+    return float4(rgb_final, 1.0f);
+#endif
+}
+
+// ===========================================
+// UYVA Alpha Blending Vertex Shader
+// ===========================================
+
+// Alpha blending vertex shader (reuses the same logic as NDIConvertVS)
+void UYVAAlphaBlendVS(
+    in float4 InPosition : ATTRIBUTE0,
+    in float2 InUV : ATTRIBUTE1,
+    out float2 OutUV : TEXCOORD0,
+    out float4 OutPosition : SV_POSITION)
+{
+    OutPosition = InPosition;
+    OutUV = InUV;
+}
+
+// ===========================================
+// UYVA Alpha Blending Pixel Shader
+// ===========================================
+
+// Alpha blending pixel shader: Combine RGB with Alpha
+float4 UYVAAlphaBlendPS(float2 UV : TEXCOORD0) : SV_Target
+{
+    // Sample RGB from the intermediate target (UYVY converted to RGB)
+    float3 rgb = RGBTexture.Sample(RGBSampler, UV).rgb;
+
+    // Sample alpha from the alpha plane
+    float alpha = AlphaTexture.Sample(AlphaSampler, UV).r;
+
+    // Combine RGB with alpha
+    return float4(rgb, alpha);
+}
+
+// ===========================================
+// UYVY Pixel Shader
+// ===========================================
+float4 UYVYConvertNDIPS(float2 UV : TEXCOORD0) : SV_Target
+{
+    float4 UYVYB = UYVYTexture.Sample(UYVYSamplerB, UV);  // Bilinear sampling
+    float4 UYVYP = UYVYTexture.Sample(UYVYSamplerP, UV);  // Point sampling
+
+    // Use the same pixel position calculation as legacy
+    float Pos = 2.0 * UV.x * TextureWidth;
+    float3 YUV;
+
+    // Extract YUV
+    YUV.x = (floor(Pos % 2.0) == 0) ? UYVYP.y : UYVYP.w;  // Y component
+    YUV.yz = UYVYB.zx;  // U=z, V=x
+
+    // Use the YuvToRgb function with the passed ColorTransform matrix
+    float3 rgb = YuvToRgb(YUV, ColorTransform, CONVERT_GAMMA);
+    return float4(rgb, 1.0);
+}

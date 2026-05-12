@@ -1,0 +1,137 @@
+﻿#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/Common.ush"
+
+// Constants
+#define INTERLACE_ROW 0
+#define INTERLACE_COLUMN 1
+#define INTERLACE_CHECKERBOARD 2
+
+// Shared parameters for all stereo shaders
+Texture2D LeftEye;
+Texture2D RightEye;
+float2 TextureExtent;
+SamplerState BilinearTextureSampler;
+
+// Additional parameters for interlaced rendering
+float InterlaceOffset;
+float BlendFactor;
+float AntiAliasingAmount;
+float CheckerboardSize = 1.0;
+
+// Utility functions
+float2 UVfromSV(float4 svPosition)
+{
+	return svPosition.xy / TextureExtent;
+}
+
+float GetSmoothBlendFactor(float rawFactor, float antiAliasingAmount)
+{
+	// Apply smoothstep for softer transitions
+	return smoothstep(0.0, antiAliasingAmount, rawFactor) *
+		smoothstep(1.0, 1.0 - antiAliasingAmount, rawFactor);
+}
+
+// Standard stereo rendering pixel shader
+void StereoscopicPS(
+	float4 svPosition: SV_POSITION,
+	out float4 OutColor : SV_Target0)
+{
+	float2 uv = UVfromSV(svPosition);
+
+#if USE_ANAGLYPH
+    // Sample both eyes for every pixel using full UV range
+    half4 leftSample = LeftEye.Sample(BilinearTextureSampler, uv);
+    half4 rightSample = RightEye.Sample(BilinearTextureSampler, uv);
+
+    // Different anaglyph color combinations based on ANAGLYPH_TYPE
+    switch(ANAGLYPH_TYPE)
+    {
+    case 0:  // RedCyan
+        OutColor.r = leftSample.r;
+        OutColor.g = rightSample.g;
+        OutColor.b = rightSample.b;
+        break;
+            
+    case 1:  // GreenMagenta
+        OutColor.r = rightSample.r;
+        OutColor.g = leftSample.g;
+        OutColor.b = rightSample.b;
+        break;
+            
+    case 2:  // YellowBlue
+        OutColor.r = leftSample.r;
+        OutColor.g = leftSample.g;
+        OutColor.b = rightSample.b;
+        break;
+            
+    default:  // Fallback to RedCyan
+        OutColor.r = leftSample.r;
+        OutColor.g = rightSample.g;
+        OutColor.b = rightSample.b;
+        break;
+    }
+    
+    OutColor.a = max(leftSample.a, rightSample.a);
+#else
+	// Standard stereo output (side-by-side or top-bottom)
+#if STEREO_LANDSCAPE
+    if (uv.x <= 0.5)
+    {
+        OutColor = LeftEye.Sample(BilinearTextureSampler, float2(uv.x * 2., uv.y));
+    }
+    else
+    {
+        OutColor = RightEye.Sample(BilinearTextureSampler, float2((uv.x - 0.5) * 2., uv.y));
+    }
+#else
+	if (uv.y <= 0.5)
+	{
+		OutColor = LeftEye.Sample(BilinearTextureSampler, float2(uv.x, uv.y * 2.));
+	}
+	else
+	{
+		OutColor = RightEye.Sample(BilinearTextureSampler, float2(uv.x, (uv.y - 0.5) * 2.));
+	}
+#endif
+#endif
+}
+
+// Interlaced stereo rendering pixel shader
+void StereoInterlacePS(
+	float4 svPosition: SV_POSITION,
+	out float4 OutColor : SV_Target0)
+{
+	float2 uv = UVfromSV(svPosition);
+
+	// Calculate base pattern with offset based on InterlaceType
+	float patternValue;
+
+#if INTERLACE_TYPE == INTERLACE_ROW
+	patternValue = frac((svPosition.y + InterlaceOffset) * 0.5);
+#elif INTERLACE_TYPE == INTERLACE_COLUMN
+    patternValue = frac((svPosition.x + InterlaceOffset) * 0.5);
+#elif INTERLACE_TYPE == INTERLACE_CHECKERBOARD
+	float x = floor(svPosition.x / CheckerboardSize);
+	float y = floor(svPosition.y / CheckerboardSize);
+	patternValue = fmod(x + y + InterlaceOffset + (x % 2) * 0.5, 2.0);
+#endif
+
+	// Apply anti-aliasing to the pattern
+	float blendAmount = GetSmoothBlendFactor(patternValue, AntiAliasingAmount);
+
+	// Sample both eyes
+	float4 leftSample = LeftEye.Sample(BilinearTextureSampler, uv);
+	float4 rightSample = RightEye.Sample(BilinearTextureSampler, uv);
+
+	// Calculate adaptive blend factor based on image content
+	float3 contentDetail = abs(leftSample.rgb - rightSample.rgb);
+	float adaptiveBlend = lerp(BlendFactor, BlendFactor * 0.5,
+								length(contentDetail));
+
+	// Apply smooth transition between eyes
+	OutColor = lerp(leftSample, rightSample,
+					smoothstep(0.5 - adaptiveBlend, 0.5 + adaptiveBlend, blendAmount));
+
+	// Maintain alpha from both sources
+	OutColor.a = max(leftSample.a, rightSample.a);
+}

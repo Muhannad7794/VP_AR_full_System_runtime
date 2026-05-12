@@ -1,0 +1,29 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\private\\owl360camera\\owl360resolution.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\development\\unrealed\\sharedpch.unrealed.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\owlmrqpipeline\\definitions.owlmrqpipeline.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\public\\owl360camera\\owl360resolution.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\public\\owl360camera\\owl360pipelinesettings.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\owl360resolutionsettings.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owl360camera\\uht\\owl360resolutionsettings.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\public\\owl360camera\\owleyeindex.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owlmrqpipeline\\uht\\owleyeindex.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\datatypes\\owl360projections.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owl360camera\\uht\\owl360projections.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\livestreamingtoolkit\\public\\tools\\owlfileinput.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\livestreamingtoolkit\\uht\\owlfileinput.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owlmrqpipeline\\uht\\owl360pipelinesettings.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\public\\owl360camera\\owltile.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\datatypes\\owlfacecrop.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\datatypes\\owlfaceindex.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owl360camera\\uht\\owlfaceindex.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owl360camera\\uht\\owlfacecrop.generated.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

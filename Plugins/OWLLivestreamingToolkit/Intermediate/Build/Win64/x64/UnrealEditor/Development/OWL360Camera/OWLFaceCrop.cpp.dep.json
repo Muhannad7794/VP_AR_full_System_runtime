@@ -1,0 +1,18 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\private\\datatypes\\owlfacecrop.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\development\\unrealed\\sharedpch.unrealed.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\owl360camera\\definitions.owl360camera.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\datatypes\\owlfacecrop.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\datatypes\\owlfaceindex.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owl360camera\\uht\\owlfaceindex.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owl360camera\\uht\\owlfacecrop.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owl360camera\\public\\owl360cameramodule.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

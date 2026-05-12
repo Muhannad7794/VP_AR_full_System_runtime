@@ -1,0 +1,33 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\livestreamingtoolkiteditor\\private\\factories\\owlspoutmediasourcefactory.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\debuggame\\unrealed\\sharedpch.unrealed.project.nonoptimized.valapi.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\debuggame\\livestreamingtoolkiteditor\\definitions.livestreamingtoolkiteditor.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\livestreamingtoolkiteditor\\public\\factories\\owlspoutmediasourcefactory.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\livestreamingtoolkiteditor\\uht\\owlspoutmediasourcefactory.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlspout\\public\\mediaframework\\input\\owlspoutmediasource.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediaassets\\public\\mediasource.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\media\\public\\imediaoptions.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaassets\\uht\\mediasource.generated.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\coreuobject\\public\\uobject\\assetregistrytagscontext.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\coreuobject\\public\\uobject\\cookenums.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\plugins\\media\\mediaplate\\source\\mediaplate\\public\\mediaplate.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\plugins\\media\\mediaplate\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaplate\\uht\\mediaplate.generated.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\plugins\\media\\mediaplate\\source\\mediaplate\\public\\mediaplatecomponent.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediaassets\\public\\mediaplayerproxyinterface.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaassets\\uht\\mediaplayerproxyinterface.generated.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediaassets\\public\\mediatexturetracker.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaassets\\uht\\mediatexturetracker.generated.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\plugins\\media\\mediaplate\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaplate\\uht\\mediaplatecomponent.generated.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\engine\\public\\engineutils.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\runtime\\mediaassets\\public\\mediaplaylist.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\intermediate\\build\\win64\\unrealeditor\\inc\\mediaassets\\uht\\mediaplaylist.generated.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\unrealeditor\\inc\\owlspout\\uht\\owlspoutmediasource.generated.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

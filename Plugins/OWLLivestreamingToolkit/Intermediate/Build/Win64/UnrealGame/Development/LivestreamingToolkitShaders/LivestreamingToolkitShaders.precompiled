@@ -1,0 +1,16 @@
+{
+	"OutputFiles": [
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\Module.LivestreamingToolkitShaders.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\LivestreamingToolkitShaders.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\OWLMediaUtils.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\StereoRenderingShaderDeclaration.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\BloomDownsampleArrayResource.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\BloomShaderDeclaration.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\CubeMapOutputDeclaration.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\DomeShaderDeclaration.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\EquiShaderDeclaration.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\FOWL360EstimateShader.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\SnapshotShaderDeclaration.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Development\\LivestreamingToolkitShaders\\StereographicDeclaration.cpp.obj"
+	]
+}

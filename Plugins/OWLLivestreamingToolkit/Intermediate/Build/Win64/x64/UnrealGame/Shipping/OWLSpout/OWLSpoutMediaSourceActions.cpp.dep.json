@@ -1,0 +1,13 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlspout\\private\\mediaframework\\input\\owlspoutmediasourceactions.cpp",
+        "ProvidedModule": "",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealgame\\shipping\\owlspout\\definitions.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlspout\\public\\mediaframework\\input\\owlspoutmediasourceactions.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

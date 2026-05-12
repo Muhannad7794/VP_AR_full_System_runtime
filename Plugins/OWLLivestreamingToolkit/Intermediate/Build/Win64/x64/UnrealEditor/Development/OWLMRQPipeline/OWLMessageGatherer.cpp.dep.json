@@ -1,0 +1,16 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\private\\utils\\owlmessagegatherer.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\ci\\tmp\\intermediate\\build\\win64\\x64\\buildtempeditor\\development\\unrealed\\sharedpch.unrealed.cpp20.h.pch",
+        "Includes": [
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\owlmrqpipeline\\definitions.owlmrqpipeline.h",
+            "c:\\ci\\tmp\\plugins\\owllivestreamingtoolkit\\source\\owlmrqpipeline\\public\\utils\\owlmessagegatherer.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\developer\\messagelog\\public\\messagelogmodule.h",
+            "c:\\program files\\epic games\\ue_5.4\\engine\\source\\developer\\messagelog\\public\\messageloginitializationoptions.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}

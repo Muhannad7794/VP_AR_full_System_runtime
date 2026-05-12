@@ -1,0 +1,14 @@
+{
+	"OutputFiles": [
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\Module.OWLCamera.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLCameraModule.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLCaptureComponent.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLCineCamCapture.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLSnapshotNotifier.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLSnapshotSettings.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLSnapshotUtilities.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLStereoConvergencePlane.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLViewportCapture.cpp.obj",
+		"..\\..\\..\\x64\\UnrealGame\\Shipping\\OWLCamera\\OWLViewportPreview.cpp.obj"
+	]
+}
