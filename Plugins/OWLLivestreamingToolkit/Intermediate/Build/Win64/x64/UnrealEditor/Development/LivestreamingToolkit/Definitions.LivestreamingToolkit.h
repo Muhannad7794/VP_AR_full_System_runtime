@@ -13,7 +13,7 @@
 #define UE_PROJECT_NAME VP_AR_full_System
 #define UE_TARGET_NAME VP_AR_full_SystemEditor
 #define OWL_AUTH_URL "https://plugin-api.offworld.live"
-#define RELEASE_DATE 2026-05-14T16:09:19.029Z
+#define RELEASE_DATE 2026-05-14T16:34:26.657Z
 #define OFFWORLDLIVE_DEBUG 0
 #define DEBUG_APP_LICENCE 0
 #define AUTH_APP_NAME owl-licensing-utility.exe
