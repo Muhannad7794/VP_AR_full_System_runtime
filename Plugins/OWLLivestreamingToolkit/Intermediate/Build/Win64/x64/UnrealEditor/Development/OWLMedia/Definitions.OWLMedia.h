@@ -20,7 +20,7 @@
 #define PLATFORM_SUPPORTS_CUDA 1
 #define CUDA_API DLLIMPORT
 #define OWL_AUTH_URL "https://plugin-api.offworld.live"
-#define RELEASE_DATE 2026-05-14T16:46:37.639Z
+#define RELEASE_DATE 2026-05-15T16:08:28.389Z
 #define OFFWORLDLIVE_DEBUG 0
 #define DEBUG_APP_LICENCE 0
 #define AUTH_APP_NAME owl-licensing-utility.exe

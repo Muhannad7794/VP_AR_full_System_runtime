@@ -1,4 +1,4 @@
-/**
+﻿/**
  * KinematicDescriptorComponent.cpp
  *
  * Implementation of the four LMA descriptor pipeline for Kinematic AR.
@@ -43,13 +43,13 @@ static constexpr float TOTAL_JOINT_WEIGHT =
 // establishes tighter bounds during the session warmup period.
 // Units match the raw descriptor outputs (mm/s for velocity-based, mm for distance).
 static constexpr float INIT_MIN_EFFORT = 0.0f;
-static constexpr float INIT_MAX_EFFORT = 300.0f;  // mm/s � slow sustained movement
+static constexpr float INIT_MAX_EFFORT = 300.0f;  // mm/s — slow sustained movement
 static constexpr float INIT_MIN_EXPANSIVENESS = 0.0f;
-static constexpr float INIT_MAX_EXPANSIVENESS = 800.0f;  // mm � near-full arm extension
+static constexpr float INIT_MAX_EXPANSIVENESS = 800.0f;  // mm — near-full arm extension
 static constexpr float INIT_MIN_WEIGHT = 0.0f;
-static constexpr float INIT_MAX_WEIGHT = 500.0f;  // mm/s^2 � moderate acceleration
+static constexpr float INIT_MAX_WEIGHT = 500.0f;  // mm/s^2 — moderate acceleration
 static constexpr float INIT_MIN_FLOW = 0.0f;
-static constexpr float INIT_MAX_FLOW = 50.0f;  // mm/s^2 � low sigma at rest
+static constexpr float INIT_MAX_FLOW = 50.0f;  // mm/s^2 — low sigma at rest
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -60,7 +60,7 @@ UKinematicDescriptorComponent::UKinematicDescriptorComponent()
     PrimaryComponentTick.bCanEverTick = true;
     bIsEIActive = true;
 
-    // 1 Euro Filter initialization � parameters validated in Phase 3 against
+    // 1 Euro Filter initialization — parameters validated in Phase 3 against
     // ZED 2i BODY_38 at 30 Hz with NEURAL depth mode.
     const float MinCutoff = 1.0f;
     const float Beta = 0.05f;
@@ -144,7 +144,7 @@ void UKinematicDescriptorComponent::ToggleSystemMode()
 }
 
 // ---------------------------------------------------------------------------
-// Tick � main pipeline
+// Tick — main pipeline
 // ---------------------------------------------------------------------------
 
 void UKinematicDescriptorComponent::TickComponent(
@@ -175,7 +175,7 @@ void UKinematicDescriptorComponent::TickComponent(
         CleanLElbow, CleanRElbow,
         CleanLShoulder, CleanRShoulder);
 
-    const FVector PelvisLoc = TrackedSkeleton->GetSocketLocation(FName("PELVIS"));
+    const FVector PelvisLoc = TrackedSkeleton->GetSocketLocation(FName("Hips"));
     UpdateRenderSubsystems(PelvisLoc);
 
     ExecuteKinematicPhysics();
@@ -192,21 +192,30 @@ void UKinematicDescriptorComponent::ReadAndFilterKinematics(
     FVector& OutLElbow, FVector& OutRElbow,
     FVector& OutLShoulder, FVector& OutRShoulder)
 {
-    // Socket names match the ZED LiveLink BODY_38 skeleton joint naming convention.
+    // Socket names use the Manny rig bone names as mapped by the ZED LiveLink
+    // plugin's Bone Name Map 38 (ZED joint name → Manny skeleton bone name):
+    //   PELVIS        → Hips
+    //   SPINE_2       → Spine1
+    //   LEFT_WRIST    → LeftHand
+    //   RIGHT_WRIST   → RightHand
+    //   LEFT_ELBOW    → LeftForeArm
+    //   RIGHT_ELBOW   → RightForeArm
+    //   LEFT_SHOULDER → LeftArm
+    //   RIGHT_SHOULDER→ RightArm
     OutSpine = FilterSpine.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("SPINE_2")));
+        TrackedSkeleton->GetSocketLocation(FName("Spine1")));
     OutLWrist = FilterLWrist.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("LEFT_WRIST")));
+        TrackedSkeleton->GetSocketLocation(FName("LeftHand")));
     OutRWrist = FilterRWrist.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("RIGHT_WRIST")));
+        TrackedSkeleton->GetSocketLocation(FName("RightHand")));
     OutLElbow = FilterLElbow.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("LEFT_ELBOW")));
+        TrackedSkeleton->GetSocketLocation(FName("LeftForeArm")));
     OutRElbow = FilterRElbow.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("RIGHT_ELBOW")));
+        TrackedSkeleton->GetSocketLocation(FName("RightForeArm")));
     OutLShoulder = FilterLShoulder.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("LEFT_SHOULDER")));
+        TrackedSkeleton->GetSocketLocation(FName("LeftArm")));
     OutRShoulder = FilterRShoulder.Filter(DeltaTime,
-        TrackedSkeleton->GetSocketLocation(FName("RIGHT_SHOULDER")));
+        TrackedSkeleton->GetSocketLocation(FName("RightArm")));
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +263,7 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     const FVector VelRShoulder = (RShoulder - PrevRShoulder) / DeltaTime;
 
     // -----------------------------------------------------------------------
-    // 2. LMA Space � Expansiveness
+    // 2. LMA Space — Expansiveness
     //    Maximum of both wrist-to-spine distances. Using the maximum rather
     //    than the average correctly captures kinesphere reach: the performer's
     //    spatial extent is defined by their most extended limb.
@@ -268,7 +277,7 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
         RawExpansiveness, AdaptiveMin_Expansiveness, AdaptiveMax_Expansiveness);
 
     // -----------------------------------------------------------------------
-    // 3. LMA Time � Effort
+    // 3. LMA Time — Effort
     //    Weighted aggregate velocity magnitude across six joints.
     //    Wrists are the primary expressive effectors (weight 1.0).
     //    Elbows carry significant arm movement energy (weight 0.8).
@@ -290,7 +299,7 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     CurrentEffort = NormalizeAdaptive(RawEffort, AdaptiveMin_Effort, AdaptiveMax_Effort);
 
     // -----------------------------------------------------------------------
-    // 4. LMA Weight � Acceleration magnitude
+    // 4. LMA Weight — Acceleration magnitude
     //    Using the four most kinematically active joints (wrists and elbows)
     //    rather than all six. Shoulder acceleration is generally lower frequency
     //    and would dilute the Weight signal during fast distal movements.
@@ -311,7 +320,7 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     CurrentWeight = NormalizeAdaptive(RawWeight, AdaptiveMin_Weight, AdaptiveMax_Weight);
 
     // -----------------------------------------------------------------------
-    // 5. LMA Flow � Rolling sigma of aggregate velocity delta magnitude
+    // 5. LMA Flow — Rolling sigma of aggregate velocity delta magnitude
     //
     //    Flow is independent of Weight. While Weight measures how large the
     //    acceleration is at this instant, Flow measures how consistent or
@@ -428,7 +437,7 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 {
     if (!TrackedSkeleton) return;
 
-    const FVector PelvisLoc = TrackedSkeleton->GetSocketLocation(FName("PELVIS"));
+    const FVector PelvisLoc = TrackedSkeleton->GetSocketLocation(FName("Hips"));
 
     for (AActor* Cube : ARCubes)
     {
@@ -538,7 +547,7 @@ float UKinematicDescriptorComponent::ComputeStdDev(const TArray<float>& Buffer)
         SumSqDiff += FMath::Square(Val - Mean);
     }
 
-    // Population standard deviation (ddof=0), consistent with np.std default
+    // Population standard deviation (ddof=0), consistent with np.std default    
     // in the Python offline validation pipeline.
     return FMath::Sqrt(SumSqDiff / static_cast<float>(Buffer.Num()));
 }
