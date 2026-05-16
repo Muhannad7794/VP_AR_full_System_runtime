@@ -81,12 +81,12 @@ void UProximityDispatchComponent::BeginPlay()
     if (GlobalMPC)
     {
         UKismetMaterialLibrary::SetScalarParameterValue(
-            GetWorld(), GlobalMPC, FName("SystemMode"), 0.0f);
+            GetWorld(), GlobalMPC, FName("SystemMode"), 1.0f);
     }
 
     UE_LOG(LogTemp, Log,
         TEXT("UProximityDispatchComponent: Initialised with %d AR mesh actors. "
-             "Starting in Compositing Mode."),
+             "Starting in Interactive Mode."),
         ARMeshActors.Num());
 }
 
