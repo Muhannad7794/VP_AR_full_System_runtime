@@ -2,20 +2,21 @@
  * KinematicDescriptorComponent.cpp
  *
  * Implementation of the four LMA descriptor pipeline for Kinematic AR.
- * Corrected from the initial version to resolve three issues:
  *
- *   1. Flow independence: Flow now measures rolling sigma of velocity delta
- *      magnitude across the tracked joint set, making it independent of Weight.
- *      High sigma = Free (erratic, unpredictable). Low sigma = Bound (controlled).
+ * Physics model — per-limb independent directional forces:
+ *   Each tracked limb (left wrist, right wrist, left elbow, right elbow)
+ *   contributes an independent force vector to every particle in the bubble.
+ *   A particle receives force from a limb only if the particle faces the
+ *   direction that limb is moving (positive dot product). This produces
+ *   the "spherical cloth" behaviour where different faces of the bubble
+ *   deform independently based on which limbs are active and in which
+ *   directions they are moving.
  *
- *   2. Multi-joint Effort: Effort is now a weighted aggregate velocity across
- *      six joints (wrists, elbows, shoulders) rather than a single right-wrist
- *      signal. This ensures the descriptor registers both bilateral and
- *      asymmetric expressive movements.
- *
- *   3. Adaptive normalization: Per-descriptor adaptive EMA-based range tracking
- *      replaces all hardcoded normalization constants. The range expands quickly
- *      when new extremes are encountered and contracts slowly otherwise.
+ *   LMA descriptors govern the CHARACTER of the deformation:
+ *     Effort     — overall urgency, scales the base force magnitude globally
+ *     Weight     — acceleration magnitude, scales individual limb force spikes
+ *     Flow       — attractor spring strength (Bound = tight, Free = loose)
+ *     Expansiveness — spatial reach, scales how far displaced particles travel
  */
 
 #include "kinematicEI_system/KinematicDescriptorComponent.h"
@@ -39,17 +40,14 @@ static constexpr float TOTAL_JOINT_WEIGHT =
 (WEIGHT_WRIST * 2.0f) + (WEIGHT_ELBOW * 2.0f) + (WEIGHT_SHOULDER * 2.0f);
 
 // Initial seed values for the adaptive normalization range.
-// These are conservative physiological estimates used only until real data
-// establishes tighter bounds during the session warmup period.
-// Units match the raw descriptor outputs (mm/s for velocity-based, mm for distance).
 static constexpr float INIT_MIN_EFFORT = 0.0f;
-static constexpr float INIT_MAX_EFFORT = 300.0f;  // mm/s — slow sustained movement
+static constexpr float INIT_MAX_EFFORT = 300.0f;
 static constexpr float INIT_MIN_EXPANSIVENESS = 0.0f;
-static constexpr float INIT_MAX_EXPANSIVENESS = 800.0f;  // mm — near-full arm extension
+static constexpr float INIT_MAX_EXPANSIVENESS = 800.0f;
 static constexpr float INIT_MIN_WEIGHT = 0.0f;
-static constexpr float INIT_MAX_WEIGHT = 500.0f;  // mm/s^2 — moderate acceleration
+static constexpr float INIT_MAX_WEIGHT = 500.0f;
 static constexpr float INIT_MIN_FLOW = 0.0f;
-static constexpr float INIT_MAX_FLOW = 50.0f;  // mm/s^2 — low sigma at rest
+static constexpr float INIT_MAX_FLOW = 50.0f;
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -60,8 +58,6 @@ UKinematicDescriptorComponent::UKinematicDescriptorComponent()
     PrimaryComponentTick.bCanEverTick = true;
     bIsEIActive = true;
 
-    // 1 Euro Filter initialization — parameters validated in Phase 3 against
-    // ZED 2i BODY_38 at 30 Hz with NEURAL depth mode.
     const float MinCutoff = 1.0f;
     const float Beta = 0.05f;
 
@@ -90,11 +86,21 @@ UKinematicDescriptorComponent::UKinematicDescriptorComponent()
     PrevLElbowVelocity = FVector::ZeroVector;
     PrevRElbowVelocity = FVector::ZeroVector;
 
+    // Per-limb velocity direction state — initialised to zero vectors.
+    // Populated every tick in ComputeLMADescriptors after the first frame.
+    LWristVelocityDir = FVector::ZeroVector;
+    RWristVelocityDir = FVector::ZeroVector;
+    LElbowVelocityDir = FVector::ZeroVector;
+    RElbowVelocityDir = FVector::ZeroVector;
+
+    // Per-limb speed scalars — initialised to zero.
+    LWristSpeed = 0.0f;
+    RWristSpeed = 0.0f;
+    LElbowSpeed = 0.0f;
+    RElbowSpeed = 0.0f;
+
     bFirstDescriptorFrame = true;
 
-    // Seed the adaptive normalization ranges with physiologically reasonable
-    // initial estimates. These will be refined within the first few seconds
-    // of actual movement as the adaptive tracker observes real values.
     AdaptiveMin_Effort = INIT_MIN_EFFORT;
     AdaptiveMax_Effort = INIT_MAX_EFFORT;
     AdaptiveMin_Expansiveness = INIT_MIN_EXPANSIVENESS;
@@ -113,11 +119,8 @@ void UKinematicDescriptorComponent::BeginPlay()
 {
     Super::BeginPlay();
 
-    // CubeHomeOffsets are built by RebuildHomeLocations(), which is called
-    // by BP_ARGridSpawner after spawning completes and TrackedSkeleton is
-    // guaranteed to be valid. Nothing to populate here at BeginPlay time.
-
-    // Pre-allocate the Flow sigma buffer to avoid heap reallocation during tick.
+    // CubeHomeOffsets are populated by RebuildHomeLocations(), called
+    // by BP_ARGridSpawner after spawn completes. Nothing to do here.
     FlowDeltaBuffer.Reserve(FlowWindowSize);
 }
 
@@ -132,12 +135,13 @@ void UKinematicDescriptorComponent::ToggleSystemMode()
     if (GlobalMPC)
     {
         UKismetMaterialLibrary::SetScalarParameterValue(
-            GetWorld(), GlobalMPC, FName("SystemMode"), bIsEIActive ? 1.0f : 0.0f);
+            GetWorld(), GlobalMPC, FName("SystemMode"),
+            bIsEIActive ? 1.0f : 0.0f);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tick — main pipeline
+// TickComponent
 // ---------------------------------------------------------------------------
 
 void UKinematicDescriptorComponent::TickComponent(
@@ -147,7 +151,6 @@ void UKinematicDescriptorComponent::TickComponent(
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    // Create the bubble when seening a skeleton.
     if (!TrackedSkeleton) return;
 
     FVector CleanSpine;
@@ -169,7 +172,8 @@ void UKinematicDescriptorComponent::TickComponent(
         CleanLElbow, CleanRElbow,
         CleanLShoulder, CleanRShoulder);
 
-    const FVector PelvisLoc = TrackedSkeleton->GetSocketLocation(FName("Hips"));
+    const FVector PelvisLoc =
+        TrackedSkeleton->GetSocketLocation(FName("Hips"));
     UpdateRenderSubsystems(PelvisLoc);
 
     ExecuteKinematicPhysics();
@@ -186,16 +190,6 @@ void UKinematicDescriptorComponent::ReadAndFilterKinematics(
     FVector& OutLElbow, FVector& OutRElbow,
     FVector& OutLShoulder, FVector& OutRShoulder)
 {
-    // Socket names use the Manny rig bone names as mapped by the ZED LiveLink
-    // plugin's Bone Name Map 38 (ZED joint name → Manny skeleton bone name):
-    //   PELVIS        → Hips
-    //   SPINE_2       → Spine1
-    //   LEFT_WRIST    → LeftHand
-    //   RIGHT_WRIST   → RightHand
-    //   LEFT_ELBOW    → LeftForeArm
-    //   RIGHT_ELBOW   → RightForeArm
-    //   LEFT_SHOULDER → LeftArm
-    //   RIGHT_SHOULDER→ RightArm
     OutSpine = FilterSpine.Filter(DeltaTime,
         TrackedSkeleton->GetSocketLocation(FName("Spine1")));
     OutLWrist = FilterLWrist.Filter(DeltaTime,
@@ -225,8 +219,6 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
 {
     if (DeltaTime <= 0.0f) return;
 
-    // On the first valid frame, initialize history to current positions
-    // to avoid a large spurious velocity spike on frame two.
     if (bFirstDescriptorFrame)
     {
         PrevLWrist = LWrist;
@@ -246,7 +238,7 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     }
 
     // -----------------------------------------------------------------------
-    // 1. Per-joint velocity computation
+    // 1. Per-joint velocity vectors
     // -----------------------------------------------------------------------
 
     const FVector VelLWrist = (LWrist - PrevLWrist) / DeltaTime;
@@ -257,28 +249,65 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     const FVector VelRShoulder = (RShoulder - PrevRShoulder) / DeltaTime;
 
     // -----------------------------------------------------------------------
-    // 2. LMA Space — Expansiveness
-    //    Maximum of both wrist-to-spine distances. Using the maximum rather
-    //    than the average correctly captures kinesphere reach: the performer's
-    //    spatial extent is defined by their most extended limb.
+    // 2. Per-limb speed scalars and normalised direction vectors.
+    //    These are written to member variables so ExecuteKinematicPhysics
+    //    can apply independent per-limb forces without re-computing them.
+    //
+    //    Velocity direction is smoothed with a low-alpha lerp to prevent
+    //    rapid direction flipping on low-speed frames where noise dominates.
+    //    A minimum speed threshold of 1.0 cm/s suppresses direction updates
+    //    when the limb is effectively stationary.
+    // -----------------------------------------------------------------------
+
+    static constexpr float MIN_SPEED_FOR_DIR_UPDATE = 1.0f;
+    static constexpr float DIR_SMOOTH_ALPHA = 0.3f;
+
+    LWristSpeed = VelLWrist.Size();
+    RWristSpeed = VelRWrist.Size();
+    LElbowSpeed = VelLElbow.Size();
+    RElbowSpeed = VelRElbow.Size();
+
+    if (LWristSpeed > MIN_SPEED_FOR_DIR_UPDATE)
+    {
+        LWristVelocityDir = FMath::Lerp(
+            LWristVelocityDir,
+            VelLWrist / LWristSpeed,
+            DIR_SMOOTH_ALPHA).GetSafeNormal();
+    }
+    if (RWristSpeed > MIN_SPEED_FOR_DIR_UPDATE)
+    {
+        RWristVelocityDir = FMath::Lerp(
+            RWristVelocityDir,
+            VelRWrist / RWristSpeed,
+            DIR_SMOOTH_ALPHA).GetSafeNormal();
+    }
+    if (LElbowSpeed > MIN_SPEED_FOR_DIR_UPDATE)
+    {
+        LElbowVelocityDir = FMath::Lerp(
+            LElbowVelocityDir,
+            VelLElbow / LElbowSpeed,
+            DIR_SMOOTH_ALPHA).GetSafeNormal();
+    }
+    if (RElbowSpeed > MIN_SPEED_FOR_DIR_UPDATE)
+    {
+        RElbowVelocityDir = FMath::Lerp(
+            RElbowVelocityDir,
+            VelRElbow / RElbowSpeed,
+            DIR_SMOOTH_ALPHA).GetSafeNormal();
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. LMA Space — Expansiveness
     // -----------------------------------------------------------------------
 
     const float DistL = FVector::Dist(Spine, LWrist);
     const float DistR = FVector::Dist(Spine, RWrist);
-    const float RawExpansiveness = FMath::Max(DistL, DistR);
-
     CurrentExpansiveness = NormalizeAdaptive(
-        RawExpansiveness, AdaptiveMin_Expansiveness, AdaptiveMax_Expansiveness);
+        FMath::Max(DistL, DistR),
+        AdaptiveMin_Expansiveness, AdaptiveMax_Expansiveness);
 
     // -----------------------------------------------------------------------
-    // 3. LMA Time — Effort
-    //    Weighted aggregate velocity magnitude across six joints.
-    //    Wrists are the primary expressive effectors (weight 1.0).
-    //    Elbows carry significant arm movement energy (weight 0.8).
-    //    Shoulders provide gross upper-body motion context (weight 0.6).
-    //    Summing weighted magnitudes rather than vector magnitudes prevents
-    //    left/right cancellation from reducing the aggregate to near zero
-    //    during symmetric bilateral movements.
+    // 4. LMA Time — Effort (weighted aggregate velocity)
     // -----------------------------------------------------------------------
 
     const float RawEffort =
@@ -290,13 +319,11 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
             VelRShoulder.Size() * WEIGHT_SHOULDER)
         / TOTAL_JOINT_WEIGHT;
 
-    CurrentEffort = NormalizeAdaptive(RawEffort, AdaptiveMin_Effort, AdaptiveMax_Effort);
+    CurrentEffort = NormalizeAdaptive(
+        RawEffort, AdaptiveMin_Effort, AdaptiveMax_Effort);
 
     // -----------------------------------------------------------------------
-    // 4. LMA Weight — Acceleration magnitude
-    //    Using the four most kinematically active joints (wrists and elbows)
-    //    rather than all six. Shoulder acceleration is generally lower frequency
-    //    and would dilute the Weight signal during fast distal movements.
+    // 5. LMA Weight — acceleration magnitude
     // -----------------------------------------------------------------------
 
     const FVector AccelLWrist = (VelLWrist - PrevLWristVelocity) / DeltaTime;
@@ -311,60 +338,44 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
             AccelRElbow.Size() * WEIGHT_ELBOW)
         / (WEIGHT_WRIST * 2.0f + WEIGHT_ELBOW * 2.0f);
 
-    CurrentWeight = NormalizeAdaptive(RawWeight, AdaptiveMin_Weight, AdaptiveMax_Weight);
+    CurrentWeight = NormalizeAdaptive(
+        RawWeight, AdaptiveMin_Weight, AdaptiveMax_Weight);
 
     // -----------------------------------------------------------------------
-    // 5. LMA Flow — Rolling sigma of aggregate velocity delta magnitude
-    //
-    //    Flow is independent of Weight. While Weight measures how large the
-    //    acceleration is at this instant, Flow measures how consistent or
-    //    erratic the velocity changes have been over the last FlowWindowSize
-    //    frames. A performer executing a controlled Press (Strong + Bound) has
-    //    high Weight but low Flow sigma: the acceleration is large but
-    //    predictable. A performer executing a Slash (Strong + Free) has high
-    //    Weight AND high Flow sigma: the acceleration is both large and chaotic.
-    //    This distinction is what makes the eight LMA action drives separable.
-    //
-    //    The aggregate velocity is the weighted mean velocity magnitude across
-    //    the four primary joints (same set as Weight). Its frame-to-frame delta
-    //    (i.e., the rate of change of the aggregate velocity magnitude) feeds
-    //    the sigma buffer.
+    // 6. LMA Flow — rolling sigma of aggregate velocity delta magnitude
     // -----------------------------------------------------------------------
 
-    const float AggregateVelocityMag =
+    const float AggVelMag =
         (VelLWrist.Size() * WEIGHT_WRIST +
             VelRWrist.Size() * WEIGHT_WRIST +
             VelLElbow.Size() * WEIGHT_ELBOW +
             VelRElbow.Size() * WEIGHT_ELBOW)
         / (WEIGHT_WRIST * 2.0f + WEIGHT_ELBOW * 2.0f);
 
-    // PrevAggregateVelocityMag is reconstructed from saved velocities.
-    const float PrevAggregateVelocityMag =
+    const float PrevAggVelMag =
         (PrevLWristVelocity.Size() * WEIGHT_WRIST +
             PrevRWristVelocity.Size() * WEIGHT_WRIST +
             PrevLElbowVelocity.Size() * WEIGHT_ELBOW +
             PrevRElbowVelocity.Size() * WEIGHT_ELBOW)
         / (WEIGHT_WRIST * 2.0f + WEIGHT_ELBOW * 2.0f);
 
-    const float VelocityDeltaMag = FMath::Abs(
-        AggregateVelocityMag - PrevAggregateVelocityMag) / DeltaTime;
+    const float VelDeltaMag =
+        FMath::Abs(AggVelMag - PrevAggVelMag) / DeltaTime;
 
-    // Maintain rolling circular buffer of velocity delta magnitudes.
-    FlowDeltaBuffer.Add(VelocityDeltaMag);
+    FlowDeltaBuffer.Add(VelDeltaMag);
     if (FlowDeltaBuffer.Num() > FlowWindowSize)
     {
         FlowDeltaBuffer.RemoveAt(0, 1, false);
     }
 
-    // Sigma requires at least two samples. Hold Flow at zero during warmup.
     const float RawFlow = (FlowDeltaBuffer.Num() >= 2)
-        ? ComputeStdDev(FlowDeltaBuffer)
-        : 0.0f;
+        ? ComputeStdDev(FlowDeltaBuffer) : 0.0f;
 
-    CurrentFlow = NormalizeAdaptive(RawFlow, AdaptiveMin_Flow, AdaptiveMax_Flow);
+    CurrentFlow = NormalizeAdaptive(
+        RawFlow, AdaptiveMin_Flow, AdaptiveMax_Flow);
 
     // -----------------------------------------------------------------------
-    // 6. Advance history state
+    // 7. Advance history state
     // -----------------------------------------------------------------------
 
     PrevLWrist = LWrist;
@@ -380,31 +391,21 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     PrevRElbowVelocity = VelRElbow;
 
     // -----------------------------------------------------------------------
-    // 7. Write debug outputs
+    // 8. Write debug outputs
     // -----------------------------------------------------------------------
 
     DebugEffort = CurrentEffort;
     DebugExpansiveness = CurrentExpansiveness;
     DebugWeight = CurrentWeight;
     DebugFlow = CurrentFlow;
-
-    // Compute the dominant action direction from the faster-moving wrist.
-    // This vector points from the faster wrist toward spine_2, defining
-    // the spatial direction of the current movement intent.
-    const float LWristSpeed = (LWrist - PrevLWrist).Size();
-    const float RWristSpeed = (RWrist - PrevRWrist).Size();
-    const FVector DominantWrist = (LWristSpeed > RWristSpeed)
-        ? LWrist : RWrist;
-    const FVector WristToSpine = (Spine - DominantWrist).GetSafeNormal();
-    CurrentActionDirection = FMath::Lerp(
-        CurrentActionDirection, WristToSpine, 0.15f).GetSafeNormal();
 }
 
 // ---------------------------------------------------------------------------
 // UpdateRenderSubsystems
 // ---------------------------------------------------------------------------
 
-void UKinematicDescriptorComponent::UpdateRenderSubsystems(const FVector& PelvisLocation)
+void UKinematicDescriptorComponent::UpdateRenderSubsystems(
+    const FVector& PelvisLocation)
 {
     if (GlobalMPC)
     {
@@ -419,23 +420,56 @@ void UKinematicDescriptorComponent::UpdateRenderSubsystems(const FVector& Pelvis
         UKismetMaterialLibrary::SetScalarParameterValue(
             World, GlobalMPC, FName("FlowLevel"), CurrentFlow);
 
-        // PelvisWorldLocation is passed as FLinearColor (R=X, G=Y, B=Z, A=1)
-        // because Material Parameter Collections store vectors as FLinearColor.
-        // The material reads .rgb as the 3D position for GPU-side distance computation.
         UKismetMaterialLibrary::SetVectorParameterValue(
             World, GlobalMPC, FName("PelvisWorldLocation"),
-            FLinearColor(PelvisLocation.X, PelvisLocation.Y, PelvisLocation.Z, 1.0f));
+            FLinearColor(
+                PelvisLocation.X,
+                PelvisLocation.Y,
+                PelvisLocation.Z,
+                1.0f));
     }
 
     if (ParticleSystem)
     {
-        ParticleSystem->SetFloatParameter(FName("User.EffortLevel"), CurrentEffort);
-        ParticleSystem->SetFloatParameter(FName("User.FlowLevel"), CurrentFlow);
+        ParticleSystem->SetFloatParameter(
+            FName("User.EffortLevel"), CurrentEffort);
+        ParticleSystem->SetFloatParameter(
+            FName("User.FlowLevel"), CurrentFlow);
     }
 }
 
 // ---------------------------------------------------------------------------
 // ExecuteKinematicPhysics
+//
+// Per-particle, per-limb independent force model.
+//
+// For each bubble particle, four limbs contribute independent force vectors:
+//   Left wrist, Right wrist, Left elbow, Right elbow.
+//
+// A limb contributes force to a particle only when:
+//   (a) The particle faces the limb's movement direction (positive dot product
+//       between the particle's outward normal and the limb velocity direction).
+//   (b) The limb is moving fast enough to be expressive (speed above threshold).
+//
+// The magnitude of each limb's contribution is scaled by:
+//   - The limb's own speed (faster = stronger push)
+//   - CurrentEffort (global urgency multiplier)
+//   - CurrentWeight (acceleration-based force spike)
+//   - Expansiveness (spatial reach scale)
+//   - The dot product alignment (particles directly in line receive full force;
+//     particles at glancing angles receive proportionally less)
+//
+// For pull movements (performer pulling arm backward), the velocity direction
+// points away from the bubble surface on that side. The dot product with the
+// outward normal becomes negative, so those particles receive no push from the
+// repulsor. Instead, the attractor pulls them inward toward their home position
+// (which is now closer than they were if they had previously been pushed out).
+// This produces the "sucked inward" effect without requiring an explicit pull
+// force — the attractor handles it naturally when the repulsor stops.
+//
+// Flow governs attractor strength: Bound movement (low Flow) pulls particles
+// back tightly; Free movement (high Flow) weakens the attractor, allowing
+// particles to drift and scatter after being pushed.
 // ---------------------------------------------------------------------------
 
 void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
@@ -444,6 +478,31 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 
     const FVector PelvisLoc =
         TrackedSkeleton->GetSocketLocation(FName("Hips"));
+
+    // Limb descriptor array for the per-limb force loop.
+    // Each entry: { velocity direction (normalised), speed scalar, joint weight }
+    struct FLimbForceDescriptor
+    {
+        FVector  Dir;
+        float    Speed;
+        float    JointWeight;
+    };
+
+    const FLimbForceDescriptor Limbs[] =
+    {
+        { LWristVelocityDir, LWristSpeed, WEIGHT_WRIST },
+        { RWristVelocityDir, RWristSpeed, WEIGHT_WRIST },
+        { LElbowVelocityDir, LElbowSpeed, WEIGHT_ELBOW },
+        { RElbowVelocityDir, RElbowSpeed, WEIGHT_ELBOW },
+    };
+
+    // Minimum limb speed below which no repulsor contribution is applied.
+    // Prevents noise-level micro-movements from continuously jittering particles.
+    static constexpr float MIN_LIMB_SPEED_THRESHOLD = 5.0f;
+
+    // Expansiveness spatial reach scale: maps [0,1] to [0.5, 1.5]
+    // so even at zero Expansiveness some force still reaches particles.
+    const float ExpansivenessScale = 0.5f + CurrentExpansiveness;
 
     for (AActor* Cube : ARCubes)
     {
@@ -457,129 +516,87 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         const FVector CurrentLoc = Cube->GetActorLocation();
         const FVector CubeVelocity = PrimComp->GetComponentVelocity();
 
-        // Home position tracks the performer's pelvis in world space.
-        // Each cube's home offset was recorded relative to the pelvis
-        // at spawn time by RebuildHomeLocations.
+        // Outward normal of this particle relative to the performer's pelvis.
+        // This is the direction from the body centre to the particle surface —
+        // the direction a push "outward" from the body would travel.
+        const FVector OutwardNormal =
+            (CurrentLoc - PelvisLoc).GetSafeNormal();
+
+        // Home position follows the performer's pelvis via the stored offset.
         const FVector HomeLoc = CubeHomeOffsets.Contains(Cube)
             ? (PelvisLoc + CubeHomeOffsets[Cube])
             : CurrentLoc;
 
-        // --- Attractor ---
-        // Pulls each cube toward its pelvis-relative home position.
-        // Strength scales with (1 - Flow): Bound movement holds
-        // the formation tight; Free movement allows dispersion.
+        // -------------------------------------------------------------------
+        // Attractor — pulls particle toward its pelvis-relative home.
+        // Strength scales with (1 - Flow):
+        //   Bound movement (low Flow)  → strong attractor → tight formation
+        //   Free movement  (high Flow) → weak attractor  → loose, drifting
+        // -------------------------------------------------------------------
+
         const FVector ToHome = HomeLoc - CurrentLoc;
         const FVector AttractorForce = ToHome
             * AttractorSpringConstant
             * (1.0f - CurrentFlow);
 
-        // --- Directional Alignment ---
-        // Measures how closely this cube's position (relative to the
-        // pelvis) aligns with the current action direction vector.
-        // Range: -1.0 (directly opposite) to +1.0 (directly in line).
-        // Only cubes with positive alignment — those that face the
-        // direction of the movement — receive the repulsor impulse.
-        const FVector CubeDir =
-            (CurrentLoc - PelvisLoc).GetSafeNormal();
-        const float Alignment = FVector::DotProduct(
-            CubeDir, CurrentActionDirection);
+        // -------------------------------------------------------------------
+        // Per-limb repulsor — accumulate independent contributions.
+        // Each limb only pushes particles that face its movement direction.
+        // -------------------------------------------------------------------
 
-        // Clamp to [0, 1]: particles behind the action receive no push.
-        const float DirectionalWeight = FMath::Clamp(Alignment, 0.0f, 1.0f);
+        FVector AccumulatedRepulsorForce = FVector::ZeroVector;
 
-        // --- Repulsor ---
-        // Pushes cubes outward along the action direction, weighted by
-        // how directly each cube faces that direction (DirectionalWeight).
-        // Magnitude is governed by Effort (urgency) and Weight (force).
-        // Expansiveness scales the spatial reach of the effect.
-        const FVector RepulsorForce = CurrentActionDirection
-            * RepulsorForceMultiplier
-            * CurrentEffort
-            * CurrentWeight
-            * DirectionalWeight
-            * (0.5f + CurrentExpansiveness * 0.5f);
+        for (const FLimbForceDescriptor& Limb : Limbs)
+        {
+            if (Limb.Speed < MIN_LIMB_SPEED_THRESHOLD) continue;
 
-        // --- Drag ---
-        // Damps cube velocity dynamically. Maximum at zero Effort
-        // (stillness freezes the formation); minimum at high Effort
-        // (explosive movement allows cubes to travel freely).
+            // Dot product between the particle's outward normal and the limb's
+            // velocity direction. Positive → particle faces the movement.
+            // Zero or negative → particle is on the opposite side, receives no push.
+            const float Alignment = FVector::DotProduct(OutwardNormal, Limb.Dir);
+            if (Alignment <= 0.0f) continue;
+
+            // Force magnitude for this limb's contribution:
+            //   Speed          — how fast the limb is moving
+            //   Alignment      — how directly the particle faces the movement
+            //   Effort         — global urgency of movement (LMA Time)
+            //   Weight         — acceleration spike (LMA Weight)
+            //   JointWeight    — anatomical importance (wrist > elbow)
+            //   ExpansivenessScale — spatial reach (LMA Space)
+            const float LimbForceMag =
+                Limb.Speed
+                * Alignment
+                * CurrentEffort
+                * (0.5f + CurrentWeight * 0.5f)
+                * Limb.JointWeight
+                * ExpansivenessScale;
+
+            // Force acts along the limb's velocity direction — the particle
+            // moves in the same direction the limb is moving, not radially.
+            // This means a forward thrust pushes particles forward, a lateral
+            // sweep pushes particles sideways, etc.
+            AccumulatedRepulsorForce += Limb.Dir * LimbForceMag;
+        }
+
+        const FVector RepulsorForce =
+            AccumulatedRepulsorForce * RepulsorForceMultiplier;
+
+        // -------------------------------------------------------------------
+        // Drag — velocity-proportional damping.
+        // Maximum drag at zero Effort (stillness freezes particles in place).
+        // Minimum drag at high Effort (explosive movements allow free travel).
+        // -------------------------------------------------------------------
+
         const FVector DragForce = -CubeVelocity
             * BaseDragCoefficient
             * (1.0f - CurrentEffort);
 
-        // AccelChange = true applies force as pure acceleration,
-        // making the response mass-independent across all cubes.
+        // AccelChange = true → force applied as acceleration (mass-independent).
         PrimComp->AddForce(
             AttractorForce + RepulsorForce + DragForce,
             NAME_None,
             /*bAccelChange=*/ true);
     }
-}
-
-// ---------------------------------------------------------------------------
-// NormalizeAdaptive
-// ---------------------------------------------------------------------------
-
-float UKinematicDescriptorComponent::NormalizeAdaptive(
-    float RawValue,
-    float& AdaptiveMin,
-    float& AdaptiveMax) const
-{
-    // Update the tracked maximum.
-    // Expands quickly toward new observed maxima; contracts slowly otherwise.
-    if (RawValue > AdaptiveMax)
-    {
-        AdaptiveMax = FMath::Lerp(AdaptiveMax, RawValue, NormRangeExpandAlpha);
-    }
-    else
-    {
-        AdaptiveMax = FMath::Lerp(AdaptiveMax, RawValue, NormRangeContractAlpha);
-    }
-
-    // Update the tracked minimum with opposite logic.
-    if (RawValue < AdaptiveMin)
-    {
-        AdaptiveMin = FMath::Lerp(AdaptiveMin, RawValue, NormRangeExpandAlpha);
-    }
-    else
-    {
-        AdaptiveMin = FMath::Lerp(AdaptiveMin, RawValue, NormRangeContractAlpha);
-    }
-
-    // Enforce a minimum valid range to prevent division by near-zero during
-    // the warmup period or in degenerate cases where all values are equal.
-    const float ValidRange = FMath::Max(AdaptiveMax - AdaptiveMin, 1.0f);
-
-    return FMath::Clamp((RawValue - AdaptiveMin) / ValidRange, 0.0f, 1.0f);
-}
-
-// ---------------------------------------------------------------------------
-// ComputeStdDev
-// ---------------------------------------------------------------------------
-
-float UKinematicDescriptorComponent::ComputeStdDev(const TArray<float>& Buffer)
-{
-    if (Buffer.Num() < 2)
-    {
-        return 0.0f;
-    }
-
-    float Sum = 0.0f;
-    for (const float Val : Buffer)
-    {
-        Sum += Val;
-    }
-    const float Mean = Sum / static_cast<float>(Buffer.Num());
-
-    float SumSqDiff = 0.0f;
-    for (const float Val : Buffer)
-    {
-        SumSqDiff += FMath::Square(Val - Mean);
-    }
-
-    // Population standard deviation (ddof=0), consistent with np.std default    
-    // in the Python offline validation pipeline.
-    return FMath::Sqrt(SumSqDiff / static_cast<float>(Buffer.Num()));
 }
 
 // ---------------------------------------------------------------------------
@@ -590,15 +607,11 @@ void UKinematicDescriptorComponent::RebuildHomeLocations()
 {
     CubeHomeOffsets.Empty();
 
-    // TrackedSkeleton must be valid at the time this is called.
-    // BP_ARGridSpawner calls this after a 0.2s delay which guarantees
-    // TrackedSkeleton has been injected by the Level Blueprint sequence.
     if (!TrackedSkeleton)
     {
         UE_LOG(LogTemp, Warning,
             TEXT("UKinematicDescriptorComponent: RebuildHomeLocations called "
-                "before TrackedSkeleton was assigned. Home offsets will be "
-                "zero — call again after TrackedSkeleton is set."));
+                "before TrackedSkeleton was assigned."));
         return;
     }
 
@@ -609,18 +622,55 @@ void UKinematicDescriptorComponent::RebuildHomeLocations()
     {
         if (Cube)
         {
-            // Store the vector from the current pelvis to this cube's
-            // world position. This offset is replayed each tick relative
-            // to the live pelvis position, making the formation follow
-            // the performer through the stage.
             CubeHomeOffsets.Add(Cube, Cube->GetActorLocation() - PelvisNow);
         }
     }
 
     UE_LOG(LogTemp, Log,
         TEXT("UKinematicDescriptorComponent: RebuildHomeLocations — "
-            "%d cubes anchored with pelvis-relative offsets. "
-            "Pelvis at %.1f, %.1f, %.1f."),
+            "%d cubes anchored. Pelvis at %.1f, %.1f, %.1f."),
         CubeHomeOffsets.Num(),
         PelvisNow.X, PelvisNow.Y, PelvisNow.Z);
+}
+
+// ---------------------------------------------------------------------------
+// NormalizeAdaptive
+// ---------------------------------------------------------------------------
+
+float UKinematicDescriptorComponent::NormalizeAdaptive(
+    float  RawValue,
+    float& AdaptiveMin,
+    float& AdaptiveMax) const
+{
+    if (RawValue > AdaptiveMax)
+        AdaptiveMax = FMath::Lerp(AdaptiveMax, RawValue, NormRangeExpandAlpha);
+    else
+        AdaptiveMax = FMath::Lerp(AdaptiveMax, RawValue, NormRangeContractAlpha);
+
+    if (RawValue < AdaptiveMin)
+        AdaptiveMin = FMath::Lerp(AdaptiveMin, RawValue, NormRangeExpandAlpha);
+    else
+        AdaptiveMin = FMath::Lerp(AdaptiveMin, RawValue, NormRangeContractAlpha);
+
+    const float ValidRange = FMath::Max(AdaptiveMax - AdaptiveMin, 1.0f);
+    return FMath::Clamp((RawValue - AdaptiveMin) / ValidRange, 0.0f, 1.0f);
+}
+
+// ---------------------------------------------------------------------------
+// ComputeStdDev
+// ---------------------------------------------------------------------------
+
+float UKinematicDescriptorComponent::ComputeStdDev(const TArray<float>& Buffer)
+{
+    if (Buffer.Num() < 2) return 0.0f;
+
+    float Sum = 0.0f;
+    for (const float Val : Buffer) Sum += Val;
+    const float Mean = Sum / static_cast<float>(Buffer.Num());
+
+    float SumSqDiff = 0.0f;
+    for (const float Val : Buffer)
+        SumSqDiff += FMath::Square(Val - Mean);
+
+    return FMath::Sqrt(SumSqDiff / static_cast<float>(Buffer.Num()));
 }

@@ -187,12 +187,41 @@ private:
     FVector PrevLElbowVelocity;
     FVector PrevRElbowVelocity;
 
- // The dominant action direction vector this tick.
-// Computed from the wrist-to-spine_2 vector of the fastest-moving wrist.
-// Used by ExecuteKinematicPhysics to apply directional LMA forces.
-    FVector CurrentActionDirection;
-
+ 
+    
     bool bFirstDescriptorFrame;
+
+    // ---------------------------------------------------------------------------
+    // Per-limb velocity state — written every tick in ComputeLMADescriptors,
+    // read every tick in ExecuteKinematicPhysics.
+    //
+    // Storing these as member variables avoids passing eight parameters between
+    // the two functions and keeps the tick call stack shallow.
+    // ---------------------------------------------------------------------------
+
+/** Normalised velocity direction of the left wrist this tick. */
+    FVector LWristVelocityDir;
+
+    /** Normalised velocity direction of the right wrist this tick. */
+    FVector RWristVelocityDir;
+
+    /** Normalised velocity direction of the left elbow this tick. */
+    FVector LElbowVelocityDir;
+
+    /** Normalised velocity direction of the right elbow this tick. */
+    FVector RElbowVelocityDir;
+
+    /** Speed scalar (cm/s) of the left wrist this tick. */
+    float LWristSpeed;
+
+    /** Speed scalar (cm/s) of the right wrist this tick. */
+    float RWristSpeed;
+
+    /** Speed scalar (cm/s) of the left elbow this tick. */
+    float LElbowSpeed;
+
+    /** Speed scalar (cm/s) of the right elbow this tick. */
+    float RElbowSpeed;
 
     // -----------------------------------------------------------------------
     // Flow: Rolling sigma buffer
