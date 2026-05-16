@@ -113,16 +113,9 @@ void UKinematicDescriptorComponent::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Store the initial world locations of the AR cubes as their "Home" anchor.
-    // These are used by the spring-attractor physics loop to pull cubes back
-    // toward their formation positions.
-    for (AActor* Cube : ARCubes)
-    {
-        if (Cube)
-        {
-            CubeHomeLocations.Add(Cube, Cube->GetActorLocation());
-        }
-    }
+    // CubeHomeOffsets are built by RebuildHomeLocations(), which is called
+    // by BP_ARGridSpawner after spawning completes and TrackedSkeleton is
+    // guaranteed to be valid. Nothing to populate here at BeginPlay time.
 
     // Pre-allocate the Flow sigma buffer to avoid heap reallocation during tick.
     FlowDeltaBuffer.Reserve(FlowWindowSize);
@@ -154,7 +147,8 @@ void UKinematicDescriptorComponent::TickComponent(
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    if (!bIsEIActive || !TrackedSkeleton) return;
+    // Create the bubble when seening a skeleton.
+    if (!TrackedSkeleton) return;
 
     FVector CleanSpine;
     FVector CleanLWrist, CleanRWrist;
@@ -393,6 +387,17 @@ void UKinematicDescriptorComponent::ComputeLMADescriptors(
     DebugExpansiveness = CurrentExpansiveness;
     DebugWeight = CurrentWeight;
     DebugFlow = CurrentFlow;
+
+    // Compute the dominant action direction from the faster-moving wrist.
+    // This vector points from the faster wrist toward spine_2, defining
+    // the spatial direction of the current movement intent.
+    const float LWristSpeed = (LWrist - PrevLWrist).Size();
+    const float RWristSpeed = (RWrist - PrevRWrist).Size();
+    const FVector DominantWrist = (LWristSpeed > RWristSpeed)
+        ? LWrist : RWrist;
+    const FVector WristToSpine = (Spine - DominantWrist).GetSafeNormal();
+    CurrentActionDirection = FMath::Lerp(
+        CurrentActionDirection, WristToSpine, 0.15f).GetSafeNormal();
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +442,8 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 {
     if (!TrackedSkeleton) return;
 
-    const FVector PelvisLoc = TrackedSkeleton->GetSocketLocation(FName("Hips"));
+    const FVector PelvisLoc =
+        TrackedSkeleton->GetSocketLocation(FName("Hips"));
 
     for (AActor* Cube : ARCubes)
     {
@@ -449,36 +455,60 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         if (!PrimComp || !PrimComp->IsSimulatingPhysics()) continue;
 
         const FVector CurrentLoc = Cube->GetActorLocation();
-        const FVector HomeLoc = CubeHomeLocations.Contains(Cube)
-            ? CubeHomeLocations[Cube] : CurrentLoc;
         const FVector CubeVelocity = PrimComp->GetComponentVelocity();
 
-        // Attractor: pulls cubes back toward formation home.
-        // Strength scales with (1 - Flow) so Bound movement maintains a tighter
-        // formation while Free movement allows more chaotic dispersion.
+        // Home position tracks the performer's pelvis in world space.
+        // Each cube's home offset was recorded relative to the pelvis
+        // at spawn time by RebuildHomeLocations.
+        const FVector HomeLoc = CubeHomeOffsets.Contains(Cube)
+            ? (PelvisLoc + CubeHomeOffsets[Cube])
+            : CurrentLoc;
+
+        // --- Attractor ---
+        // Pulls each cube toward its pelvis-relative home position.
+        // Strength scales with (1 - Flow): Bound movement holds
+        // the formation tight; Free movement allows dispersion.
         const FVector ToHome = HomeLoc - CurrentLoc;
-        const FVector AttractorForce = ToHome * AttractorSpringConstant
+        const FVector AttractorForce = ToHome
+            * AttractorSpringConstant
             * (1.0f - CurrentFlow);
 
-        // Repulsor: pushes cubes outward from the performer's pelvis.
-        // The direction is derived from the wrist-to-spine vector projected
-        // onto the cube's relative position rather than purely radial, but
-        // using pelvis as the centre point is a valid simplification for the
-        // physics layer. The exact directional intent is handled in the
-        // GPU-side material via PelvisWorldLocation.
-        const FVector OutwardDir = (CurrentLoc - PelvisLoc).GetSafeNormal();
-        const FVector RepulsorForce = OutwardDir * RepulsorForceMultiplier
-            * CurrentEffort
-            * CurrentExpansiveness;
+        // --- Directional Alignment ---
+        // Measures how closely this cube's position (relative to the
+        // pelvis) aligns with the current action direction vector.
+        // Range: -1.0 (directly opposite) to +1.0 (directly in line).
+        // Only cubes with positive alignment — those that face the
+        // direction of the movement — receive the repulsor impulse.
+        const FVector CubeDir =
+            (CurrentLoc - PelvisLoc).GetSafeNormal();
+        const float Alignment = FVector::DotProduct(
+            CubeDir, CurrentActionDirection);
 
-        // Drag: damps cube velocity. Strongest when Effort is zero, creating
-        // a "freeze" effect when the performer is still. Reduces as Effort rises,
-        // allowing cubes to continue moving during energetic sequences.
-        const FVector DragForce = -CubeVelocity * BaseDragCoefficient
+        // Clamp to [0, 1]: particles behind the action receive no push.
+        const float DirectionalWeight = FMath::Clamp(Alignment, 0.0f, 1.0f);
+
+        // --- Repulsor ---
+        // Pushes cubes outward along the action direction, weighted by
+        // how directly each cube faces that direction (DirectionalWeight).
+        // Magnitude is governed by Effort (urgency) and Weight (force).
+        // Expansiveness scales the spatial reach of the effect.
+        const FVector RepulsorForce = CurrentActionDirection
+            * RepulsorForceMultiplier
+            * CurrentEffort
+            * CurrentWeight
+            * DirectionalWeight
+            * (0.5f + CurrentExpansiveness * 0.5f);
+
+        // --- Drag ---
+        // Damps cube velocity dynamically. Maximum at zero Effort
+        // (stillness freezes the formation); minimum at high Effort
+        // (explosive movement allows cubes to travel freely).
+        const FVector DragForce = -CubeVelocity
+            * BaseDragCoefficient
             * (1.0f - CurrentEffort);
 
-        // AccelChange=true applies force as acceleration (mass-independent),
-        // ensuring uniform grid behaviour regardless of individual cube masses.
+        // AccelChange = true applies force as pure acceleration,
+        // making the response mass-independent across all cubes.
         PrimComp->AddForce(
             AttractorForce + RepulsorForce + DragForce,
             NAME_None,
@@ -558,18 +588,39 @@ float UKinematicDescriptorComponent::ComputeStdDev(const TArray<float>& Buffer)
 
 void UKinematicDescriptorComponent::RebuildHomeLocations()
 {
-    CubeHomeLocations.Empty();
+    CubeHomeOffsets.Empty();
+
+    // TrackedSkeleton must be valid at the time this is called.
+    // BP_ARGridSpawner calls this after a 0.2s delay which guarantees
+    // TrackedSkeleton has been injected by the Level Blueprint sequence.
+    if (!TrackedSkeleton)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("UKinematicDescriptorComponent: RebuildHomeLocations called "
+                "before TrackedSkeleton was assigned. Home offsets will be "
+                "zero — call again after TrackedSkeleton is set."));
+        return;
+    }
+
+    const FVector PelvisNow =
+        TrackedSkeleton->GetSocketLocation(FName("Hips"));
 
     for (AActor* Cube : ARCubes)
     {
         if (Cube)
         {
-            CubeHomeLocations.Add(Cube, Cube->GetActorLocation());
+            // Store the vector from the current pelvis to this cube's
+            // world position. This offset is replayed each tick relative
+            // to the live pelvis position, making the formation follow
+            // the performer through the stage.
+            CubeHomeOffsets.Add(Cube, Cube->GetActorLocation() - PelvisNow);
         }
     }
 
     UE_LOG(LogTemp, Log,
         TEXT("UKinematicDescriptorComponent: RebuildHomeLocations — "
-            "anchored %d cubes."),
-        CubeHomeLocations.Num());
+            "%d cubes anchored with pelvis-relative offsets. "
+            "Pelvis at %.1f, %.1f, %.1f."),
+        CubeHomeOffsets.Num(),
+        PelvisNow.X, PelvisNow.Y, PelvisNow.Z);
 }

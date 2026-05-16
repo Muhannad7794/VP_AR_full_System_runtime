@@ -52,11 +52,7 @@ public:
     // Core System Architecture References
     // -----------------------------------------------------------------------
 
-    /**
- * Rebuilds the CubeHomeLocations map from the current world positions of
- * all registered ARCubes. Called after runtime cube spawning completes to
- * ensure the attractor physics system has valid anchor positions.
- */
+    // Rebuilds home offsets relative to the current pelvis position.
     UFUNCTION(BlueprintCallable, Category = "KinematicEI|Physics")
     void RebuildHomeLocations();
 
@@ -191,6 +187,11 @@ private:
     FVector PrevLElbowVelocity;
     FVector PrevRElbowVelocity;
 
+ // The dominant action direction vector this tick.
+// Computed from the wrist-to-spine_2 vector of the fastest-moving wrist.
+// Used by ExecuteKinematicPhysics to apply directional LMA forces.
+    FVector CurrentActionDirection;
+
     bool bFirstDescriptorFrame;
 
     // -----------------------------------------------------------------------
@@ -221,10 +222,10 @@ private:
     float AdaptiveMax_Flow;
 
     // -----------------------------------------------------------------------
-    // Physics Anchor Storage
+    // Pelvis-relative home offsets
     // -----------------------------------------------------------------------
 
-    TMap<AActor*, FVector> CubeHomeLocations;
+    TMap<AActor*, FVector> CubeHomeOffsets;
 
     // -----------------------------------------------------------------------
     // Internal Helper Methods
