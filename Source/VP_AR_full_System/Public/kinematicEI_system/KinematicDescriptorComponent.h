@@ -52,6 +52,14 @@ public:
     // Core System Architecture References
     // -----------------------------------------------------------------------
 
+    /**
+ * Rebuilds the CubeHomeLocations map from the current world positions of
+ * all registered ARCubes. Called after runtime cube spawning completes to
+ * ensure the attractor physics system has valid anchor positions.
+ */
+    UFUNCTION(BlueprintCallable, Category = "KinematicEI|Physics")
+    void RebuildHomeLocations();
+
     /** ZED LiveLink-driven SkeletalMeshComponent providing joint socket locations. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|References")
     USkeletalMeshComponent* TrackedSkeleton;

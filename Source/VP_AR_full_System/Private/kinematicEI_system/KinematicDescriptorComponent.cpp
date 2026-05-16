@@ -551,3 +551,25 @@ float UKinematicDescriptorComponent::ComputeStdDev(const TArray<float>& Buffer)
     // in the Python offline validation pipeline.
     return FMath::Sqrt(SumSqDiff / static_cast<float>(Buffer.Num()));
 }
+
+// ---------------------------------------------------------------------------
+// RebuildHomeLocations
+// ---------------------------------------------------------------------------
+
+void UKinematicDescriptorComponent::RebuildHomeLocations()
+{
+    CubeHomeLocations.Empty();
+
+    for (AActor* Cube : ARCubes)
+    {
+        if (Cube)
+        {
+            CubeHomeLocations.Add(Cube, Cube->GetActorLocation());
+        }
+    }
+
+    UE_LOG(LogTemp, Log,
+        TEXT("UKinematicDescriptorComponent: RebuildHomeLocations — "
+            "anchored %d cubes."),
+        CubeHomeLocations.Num());
+}
