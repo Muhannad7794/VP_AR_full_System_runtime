@@ -140,15 +140,7 @@ public:
     // Operations
     // -----------------------------------------------------------------------
 
-    /**
-     * Toggles the EI system between active (Interactive Mode) and suspended
-     * (Compositing Mode). Writes SystemMode to the GlobalMPC on every toggle.
-     */
-    UFUNCTION(BlueprintCallable, Category = "KinematicEI|Operations")
-    void ToggleSystemMode();
-
 private:
-    bool bIsEIActive;
 
     // -----------------------------------------------------------------------
     // 1 Euro Filters — six joints for multi-joint descriptor coverage
