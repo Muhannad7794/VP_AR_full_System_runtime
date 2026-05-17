@@ -480,13 +480,11 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
     const FVector PelvisLoc =
         TrackedSkeleton->GetSocketLocation(FName("Hips"));
 
-    // Limb descriptor array for the per-limb force loop.
-    // Each entry: { velocity direction (normalised), speed scalar, joint weight }
     struct FLimbForceDescriptor
     {
-        FVector  Dir;
-        float    Speed;
-        float    JointWeight;
+        FVector Dir;
+        float   Speed;
+        float   JointWeight;
     };
 
     const FLimbForceDescriptor Limbs[] =
@@ -497,12 +495,10 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         { RElbowVelocityDir, RElbowSpeed, WEIGHT_ELBOW },
     };
 
-    // Minimum limb speed below which no repulsor contribution is applied.
-    // Prevents noise-level micro-movements from continuously jittering particles.
     static constexpr float MIN_LIMB_SPEED_THRESHOLD = 5.0f;
+    static constexpr float REF_MAX_LIMB_SPEED = 400.0f;
 
-    // Expansiveness spatial reach scale: maps [0,1] to [0.5, 1.5]
-    // so even at zero Expansiveness some force still reaches particles.
+    // ExpansivenessScale maps [0,1] to [0.5, 1.5].
     const float ExpansivenessScale = 0.5f + CurrentExpansiveness;
 
     for (AActor* Cube : ARCubes)
@@ -517,35 +513,42 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         const FVector CurrentLoc = Cube->GetActorLocation();
         const FVector CubeVelocity = PrimComp->GetComponentVelocity();
 
-        // Outward normal of this particle relative to the performer's pelvis.
-        // This is the direction from the body centre to the particle surface —
-        // the direction a push "outward" from the body would travel.
-        const FVector OutwardNormal =
-            (CurrentLoc - PelvisLoc).GetSafeNormal();
-
-        // Home position follows the performer's pelvis via the stored offset.
+        // Home position is the pelvis world location plus the
+        // pelvis-relative offset stored at RebuildHomeLocations time.
+        // This makes the entire formation follow the performer
+        // continuously every tick.
         const FVector HomeLoc = CubeHomeOffsets.Contains(Cube)
             ? (PelvisLoc + CubeHomeOffsets[Cube])
             : CurrentLoc;
 
+        // Outward normal from pelvis to this particle.
+        const FVector OutwardNormal =
+            (CurrentLoc - PelvisLoc).GetSafeNormal();
+
         // -------------------------------------------------------------------
-        // Attractor — pulls particle toward its pelvis-relative home.
-        // Strength scales with (1 - Flow):
-        //   Bound movement (low Flow)  → strong attractor → tight formation
-        //   Free movement  (high Flow) → weak attractor  → loose, drifting
+        // Attractor
+        // Two-component attractor:
+        // - BaseAttractor: always-on strong spring that follows the
+        //   performer at walking/running speed without lag.
+        // - LMAAttractor: tightens during Bound (low Flow), loosens
+        //   during Free (high Flow) for expressive variation.
+        // Combined scale never drops below 1.2 ensuring recovery.
         // -------------------------------------------------------------------
 
         const FVector ToHome = HomeLoc - CurrentLoc;
-        // Minimum attractor floor of 0.2 ensures particles always have a
-        // restoring force even at maximum Flow (fully Free movement).
-        const float AttractorScale = FMath::Max(1.0f - CurrentFlow, 0.2f);
+        const float   LMAScale = FMath::Max(1.0f - CurrentFlow, 0.3f);
+        const float   CombinedScale = 1.0f + LMAScale;
+
         const FVector AttractorForce = ToHome
             * AttractorSpringConstant
-            * AttractorScale;
+            * CombinedScale;
 
         // -------------------------------------------------------------------
-        // Per-limb repulsor — accumulate independent contributions.
-        // Each limb only pushes particles that face its movement direction.
+        // Per-limb repulsor
+        // Each limb pushes particles that face its movement direction.
+        // Pull movements are handled implicitly: when the repulsor stops
+        // firing on one face, the attractor pulls those particles inward
+        // toward home, producing the "sucked in" effect naturally.
         // -------------------------------------------------------------------
 
         FVector AccumulatedRepulsorForce = FVector::ZeroVector;
@@ -554,41 +557,25 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         {
             if (Limb.Speed < MIN_LIMB_SPEED_THRESHOLD) continue;
 
-            // Dot product between the particle's outward normal and the limb's
-            // velocity direction. Positive → particle faces the movement.
-            // Zero or negative → particle is on the opposite side, receives no push.
-            const float Alignment = FVector::DotProduct(OutwardNormal, Limb.Dir);
+            const float Alignment = FVector::DotProduct(
+                OutwardNormal, Limb.Dir);
             if (Alignment <= 0.0f) continue;
 
-            // Force magnitude for this limb's contribution:
-            //   Speed          — how fast the limb is moving
-            //   Alignment      — how directly the particle faces the movement
-            //   Effort         — global urgency of movement (LMA Time)
-            //   Weight         — acceleration spike (LMA Weight)
-            //   JointWeight    — anatomical importance (wrist > elbow)
-            //   ExpansivenessScale — spatial reach (LMA Space)
-            // --------------------------------------------------------------------
-            
-
-            // Normalise limb speed against a physiological reference maximum.
-            // 400 cm/s represents a fast ballistic arm swing. Values above this
-            // clamp to 1.0 via the Clamp below, preventing force explosion on sudden movements.
-            static constexpr float REF_MAX_LIMB_SPEED = 400.0f;
             const float NormalisedSpeed = FMath::Clamp(
                 Limb.Speed / REF_MAX_LIMB_SPEED, 0.0f, 1.0f);
 
+            // Force magnitude scales with normalised speed, alignment,
+            // LMA descriptors, joint anatomical weight, and spatial reach.
+            // Effort must be above zero for any force to be produced —
+            // stillness produces zero repulsor force by design.
             const float LimbForceMag =
                 NormalisedSpeed
                 * Alignment
-                * CurrentEffort
+                * FMath::Max(CurrentEffort, 0.05f)
                 * (0.5f + CurrentWeight * 0.5f)
                 * Limb.JointWeight
                 * ExpansivenessScale;
 
-            // Force acts along the limb's velocity direction — the particle
-            // moves in the same direction the limb is moving, not radially.
-            // This means a forward thrust pushes particles forward, a lateral
-            // sweep pushes particles sideways, etc.
             AccumulatedRepulsorForce += Limb.Dir * LimbForceMag;
         }
 
@@ -596,20 +583,22 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             AccumulatedRepulsorForce * RepulsorForceMultiplier;
 
         // -------------------------------------------------------------------
-        // Drag — velocity-proportional damping.
-        // Maximum drag at zero Effort (stillness freezes particles in place).
-        // Minimum drag at high Effort (explosive movements allow free travel).
+        // Drag
+        // Damps velocity proportionally to (1 - Effort).
+        // At zero Effort the drag is maximum, holding particles in place.
+        // At peak Effort drag drops to near zero, allowing free travel.
+        // A minimum drag floor of 0.1 prevents infinite oscillation.
         // -------------------------------------------------------------------
 
+        const float DragScale = FMath::Max(1.0f - CurrentEffort, 0.1f);
         const FVector DragForce = -CubeVelocity
             * BaseDragCoefficient
-            * (1.0f - CurrentEffort);
+            * DragScale;
 
-        // AccelChange = true → force applied as acceleration (mass-independent).
         PrimComp->AddForce(
             AttractorForce + RepulsorForce + DragForce,
             NAME_None,
-            /*bAccelChange=*/ true);
+            true);
     }
 }
 
