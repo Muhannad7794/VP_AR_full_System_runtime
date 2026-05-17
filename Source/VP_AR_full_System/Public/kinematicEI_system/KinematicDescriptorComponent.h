@@ -191,6 +191,12 @@ private:
     
     bool bFirstDescriptorFrame;
 
+    /** Set to true by RebuildHomeLocations() once valid home offsets exist.
+ *  ExecuteKinematicPhysics() is gated on this flag to prevent force
+ *  application before the formation anchor is established. */
+    bool bHomeOffsetsReady;
+
+
     // ---------------------------------------------------------------------------
     // Per-limb velocity state — written every tick in ComputeLMADescriptors,
     // read every tick in ExecuteKinematicPhysics.

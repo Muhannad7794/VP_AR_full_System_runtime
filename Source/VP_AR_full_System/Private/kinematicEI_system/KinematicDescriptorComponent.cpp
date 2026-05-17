@@ -100,6 +100,7 @@ UKinematicDescriptorComponent::UKinematicDescriptorComponent()
     RElbowSpeed = 0.0f;
 
     bFirstDescriptorFrame = true;
+    bHomeOffsetsReady = false;
 
     AdaptiveMin_Effort = INIT_MIN_EFFORT;
     AdaptiveMax_Effort = INIT_MAX_EFFORT;
@@ -474,7 +475,7 @@ void UKinematicDescriptorComponent::UpdateRenderSubsystems(
 
 void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 {
-    if (!TrackedSkeleton) return;
+    if (!TrackedSkeleton || !bHomeOffsetsReady) return;
 
     const FVector PelvisLoc =
         TrackedSkeleton->GetSocketLocation(FName("Hips"));
@@ -535,9 +536,12 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // -------------------------------------------------------------------
 
         const FVector ToHome = HomeLoc - CurrentLoc;
+        // Minimum attractor floor of 0.2 ensures particles always have a
+        // restoring force even at maximum Flow (fully Free movement).
+        const float AttractorScale = FMath::Max(1.0f - CurrentFlow, 0.2f);
         const FVector AttractorForce = ToHome
             * AttractorSpringConstant
-            * (1.0f - CurrentFlow);
+            * AttractorScale;
 
         // -------------------------------------------------------------------
         // Per-limb repulsor — accumulate independent contributions.
@@ -563,8 +567,18 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             //   Weight         — acceleration spike (LMA Weight)
             //   JointWeight    — anatomical importance (wrist > elbow)
             //   ExpansivenessScale — spatial reach (LMA Space)
+            // --------------------------------------------------------------------
+            
+
+            // Normalise limb speed against a physiological reference maximum.
+            // 400 cm/s represents a fast ballistic arm swing. Values above this
+            // clamp to 1.0 via the Clamp below, preventing force explosion on sudden movements.
+            static constexpr float REF_MAX_LIMB_SPEED = 400.0f;
+            const float NormalisedSpeed = FMath::Clamp(
+                Limb.Speed / REF_MAX_LIMB_SPEED, 0.0f, 1.0f);
+
             const float LimbForceMag =
-                Limb.Speed
+                NormalisedSpeed
                 * Alignment
                 * CurrentEffort
                 * (0.5f + CurrentWeight * 0.5f)
@@ -631,6 +645,8 @@ void UKinematicDescriptorComponent::RebuildHomeLocations()
             "%d cubes anchored. Pelvis at %.1f, %.1f, %.1f."),
         CubeHomeOffsets.Num(),
         PelvisNow.X, PelvisNow.Y, PelvisNow.Z);
+
+    bHomeOffsetsReady = true;
 }
 
 // ---------------------------------------------------------------------------
