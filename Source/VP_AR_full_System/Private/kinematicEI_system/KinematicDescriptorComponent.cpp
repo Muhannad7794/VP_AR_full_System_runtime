@@ -734,13 +734,27 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // The 0.1 floor ensures drag never fully disappears.
         // -------------------------------------------------------------------
 
-        const float DragScale =
-            FMath::Max(1.0f - CurrentEffort, 0.1f);
-
+        // Drag has two components:
+        // - BaseDrag: always-on, velocity-proportional damping that prevents runaway
+        //   displacement regardless of LMA state. Keeps cubes tethered to formation.
+        // - LMADrag: additional damping that reduces during high Effort to allow
+        //   expressive displacement, but never drops below a safe floor.
+        const float LMADragScale = FMath::Max(1.0f - CurrentEffort * 0.5f, 0.5f);
         const FVector DragForce = -CubeVelocity
             * BaseDragCoefficient
-            * DragScale;
+            * LMADragScale;
 
+        // Velocity cap: clamp the cube's current velocity before applying forces.
+        // This prevents any single large-force frame from launching a particle
+        // beyond the attractor's recovery range. Cap at 150 cm/s (1.5 m/s) —
+        // fast enough for visible expressive displacement, slow enough to recover.
+        static constexpr float MAX_PARTICLE_SPEED = 150.0f;
+        const float CurrentSpeed = CubeVelocity.Size();
+        if (CurrentSpeed > MAX_PARTICLE_SPEED)
+        {
+            PrimComp->SetPhysicsLinearVelocity(
+                CubeVelocity / CurrentSpeed * MAX_PARTICLE_SPEED);
+        }
         // Apply the combined force as a pure acceleration (bAccelChange = true).
         // Acceleration mode is mass-independent, ensuring all particles in
         // the bubble respond identically regardless of physics body mass.
