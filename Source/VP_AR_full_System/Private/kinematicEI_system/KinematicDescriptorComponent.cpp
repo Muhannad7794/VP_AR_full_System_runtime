@@ -6,56 +6,56 @@
  * RESPONSIBILITIES
  * ────────────────
  * 1. Reads raw joint positions from a ZED LiveLink-driven SkeletalMeshComponent
- *    every tick and passes them through per-joint 1 Euro Filters to remove
- *    tracker noise while preserving expressive transients.
+ * every tick and passes them through per-joint 1 Euro Filters to remove
+ * tracker noise while preserving expressive transients.
  *
  * 2. Computes four continuous Laban Movement Analysis (LMA) descriptors:
- *      Effort       (LMA Time)   — weighted aggregate velocity across six joints.
- *      Expansiveness(LMA Space)  — maximum wrist-to-spine reach distance.
- *      Weight       (LMA Weight) — weighted aggregate acceleration magnitude.
- *      Flow         (LMA Flow)   — rolling standard deviation of velocity delta,
- *                                  measuring movement regularity (Bound vs Free).
+ * Effort       (LMA Time)   — weighted aggregate velocity across six joints.
+ * Expansiveness(LMA Space)  — maximum wrist-to-spine reach distance.
+ * Weight       (LMA Weight) — weighted aggregate acceleration magnitude.
+ * Flow         (LMA Flow)   — rolling standard deviation of velocity delta,
+ * measuring movement regularity (Bound vs Free).
  *
  * 3. Writes all four descriptor values and the pelvis world position to the
- *    shared Material Parameter Collection (MPC_KinematicAR) and to the Niagara
- *    system, routing live data to the GPU and particle subsystems every frame.
+ * shared Material Parameter Collection (MPC_KinematicAR) and to the Niagara
+ * system, routing live data to the GPU and particle subsystems every frame.
  *
  * 4. Executes a per-particle, per-limb physics force model ("spherical cloth"):
  *
- *    FORMATION FOLLOWING
- *    The bubble formation follows the performer's pelvis continuously every tick.
- *    Each particle stores a pelvis-relative home offset (set by RebuildHomeLocations).
- *    Every tick: HomeLoc = LivePelvisPosition + StoredOffset.
- *    As the performer moves, LivePelvisPosition changes, and every particle's
- *    home moves with it. The attractor spring pulls each particle toward home,
- *    translating the entire bubble with the body in real time.
+ * FORMATION FOLLOWING
+ * The bubble formation follows the performer's pelvis continuously every tick.
+ * Each particle stores a pelvis-relative home offset (set by RebuildHomeLocations).
+ * Every tick: HomeLoc = LivePelvisPosition + StoredOffset.
+ * As the performer moves, LivePelvisPosition changes, and every particle's
+ * home moves with it. The attractor spring pulls each particle toward home,
+ * translating the entire bubble with the body in real time.
  *
- *    PER-LIMB DIRECTIONAL DEFORMATION
- *    Four limbs (L/R wrist, L/R elbow) each push only the particles whose
- *    outward normal (from pelvis to particle) aligns with the limb's velocity
- *    direction. A forward arm thrust deforms only the front face. A lateral
- *    sweep deforms only the side face. The opposite face is unaffected.
- *    Pull movements produce implicit inward deformation: when the repulsor
- *    stops firing on a face, the attractor pulls those particles inward.
+ * PER-LIMB DIRECTIONAL DEFORMATION
+ * Four limbs (L/R wrist, L/R elbow) each push only the particles whose
+ * outward normal (from pelvis to particle) aligns with the limb's velocity
+ * direction. A forward arm thrust deforms only the front face. A lateral
+ * sweep deforms only the side face. The opposite face is unaffected.
+ * Pull movements produce implicit inward deformation: when the repulsor
+ * stops firing on a face, the attractor pulls those particles inward.
  *
- *    LMA DESCRIPTOR ROLES
- *      Effort        → scales all repulsor force magnitudes globally.
- *      Weight        → scales acceleration-spike component of repulsor force.
- *      Flow          → scales attractor spring (Bound = tight, Free = loose).
- *      Expansiveness → scales the spatial reach of the repulsor effect.
+ * LMA DESCRIPTOR ROLES
+ * Effort        → scales all repulsor force magnitudes globally.
+ * Weight        → scales acceleration-spike component of repulsor force.
+ * Flow          → scales attractor spring (Bound = tight, Free = loose).
+ * Expansiveness → scales the spatial reach of the repulsor effect.
  *
  * 5. Handles ZED plugin lifecycle: BP_ZED_Manny can be destroyed and recreated
- *    at any time. TrackedSkeleton validity is checked every tick; stale pointers
- *    reset all state cleanly and suspend processing until reassignment.
+ * at any time. TrackedSkeleton validity is checked every tick; stale pointers
+ * reset all state cleanly and suspend processing until reassignment.
  *
  * SETUP
  * ─────
  * - Add to BP_KinematicManager alongside UProximityDispatchComponent.
  * - Assign TrackedSkeleton at runtime via the Level Blueprint BeginPlay
- *   sequence after the startup delay.
+ * sequence after the startup delay.
  * - Assign GlobalMPC (MPC_KinematicAR) and ParticleSystem in the Details panel.
  * - Leave ARCubes empty in the editor. BP_ARGridSpawner populates it at runtime
- *   then calls RebuildHomeLocations() to anchor home offsets.
+ * then calls RebuildHomeLocations() to anchor home offsets.
  */
 
 #include "kinematicEI_system/KinematicDescriptorComponent.h"
@@ -689,7 +689,7 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // Force magnitude per limb:
         //   NormalisedSpeed   — speed clamped to [0,1] against 400 cm/s.
         //   Alignment         — how directly the particle faces the movement.
-        //   Effort floor 0.05 — ensures a subtle response to gentle movement.
+        //   CurrentEffort     — ensures a subtle response to gentle movement without phantom drifting.
         //   Weight factor     — maps Weight [0,1] to [0.5,1.0], amplifying
         //                       Strong moves and reducing Light ones.
         //   JointWeight       — anatomical importance (wrist > elbow).
@@ -708,10 +708,11 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             const float NormalisedSpeed = FMath::Clamp(
                 Limb.Speed / REF_MAX_LIMB_SPEED, 0.0f, 1.0f);
 
+            // FIX: Removed the FMath::Max(CurrentEffort, 0.05f) floor that caused constant phantom drift.
             const float LimbForceMag =
                 NormalisedSpeed
                 * Alignment
-                * FMath::Max(CurrentEffort, 0.05f)
+                * CurrentEffort
                 * (0.5f + CurrentWeight * 0.5f)
                 * Limb.JointWeight
                 * ExpansivenessScale;
@@ -726,38 +727,15 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // DRAG FORCE
         //
         // Velocity-proportional damping that prevents infinite oscillation.
-        // DragScale maps Effort [0,1] to [0.9, 0.1]:
-        //   At zero Effort (stillness) → maximum drag → particles settle
-        //     back to formation position quickly.
-        //   At peak Effort (explosive move) → minimum drag → particles
-        //     travel after the push, then return via the attractor.
-        // The 0.1 floor ensures drag never fully disappears.
+        // FIX: Removed LMADragScale completely. The system now utilizes the 
+        // base drag coefficient constantly to maintain critical damping.
         // -------------------------------------------------------------------
+        const FVector DragForce = -CubeVelocity * BaseDragCoefficient;
 
-        // Drag has two components:
-        // - BaseDrag: always-on, velocity-proportional damping that prevents runaway
-        //   displacement regardless of LMA state. Keeps cubes tethered to formation.
-        // - LMADrag: additional damping that reduces during high Effort to allow
-        //   expressive displacement, but never drops below a safe floor.
-        const float LMADragScale = FMath::Max(1.0f - CurrentEffort * 0.5f, 0.5f);
-        const FVector DragForce = -CubeVelocity
-            * BaseDragCoefficient
-            * LMADragScale;
-
-        // Velocity cap: clamp the cube's current velocity before applying forces.
-        // This prevents any single large-force frame from launching a particle
-        // beyond the attractor's recovery range. Cap at 150 cm/s (1.5 m/s) —
-        // fast enough for visible expressive displacement, slow enough to recover.
-        static constexpr float MAX_PARTICLE_SPEED = 150.0f;
-        const float CurrentSpeed = CubeVelocity.Size();
-        if (CurrentSpeed > MAX_PARTICLE_SPEED)
-        {
-            PrimComp->SetPhysicsLinearVelocity(
-                CubeVelocity / CurrentSpeed * MAX_PARTICLE_SPEED);
-        }
         // Apply the combined force as a pure acceleration (bAccelChange = true).
         // Acceleration mode is mass-independent, ensuring all particles in
         // the bubble respond identically regardless of physics body mass.
+        // FIX: Removed the manual velocity cap that fought the integration step.
         PrimComp->AddForce(
             AttractorForce + RepulsorForce + DragForce,
             NAME_None,
