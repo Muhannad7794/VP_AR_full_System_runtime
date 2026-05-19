@@ -26,6 +26,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "kinematicEI_system/OneEuroFilter.h"
+#include "kinematicEI_system/ProximityDispatchComponent.h"
 #include "KinematicDescriptorComponent.generated.h"
 
 class UMaterialParameterCollection;
@@ -71,6 +72,17 @@ public:
     /** AR cube actors subject to the spring-attractor physics loop. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|References")
     TArray<AActor*> ARCubes;
+
+    // Reference to ProximityDispatchComponent on the same actor.
+    // Cached at BeginPlay. Used to read ProximityRadius for limb proximity checks.
+    UPROPERTY()
+    UProximityDispatchComponent* ProximityDispatch;
+
+    // All active ZED-tracked skeletal meshes in the scene.
+    // Updated every second by the Level Blueprint timer.
+    // Physics loop checks all entries for proximity to each particle.
+    UPROPERTY(BlueprintReadWrite, Category = "KinematicEI|References")
+    TArray<USkeletalMeshComponent*> TrackedSkeletons;
 
     // -----------------------------------------------------------------------
     // Physics Tuning Parameters

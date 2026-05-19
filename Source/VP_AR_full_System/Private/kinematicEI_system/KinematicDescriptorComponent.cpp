@@ -192,13 +192,22 @@ UKinematicDescriptorComponent::UKinematicDescriptorComponent()
 void UKinematicDescriptorComponent::BeginPlay()
 {
     Super::BeginPlay();
-
-    // Pre-allocate the Flow sigma circular buffer to avoid per-tick heap
-    // reallocation. FlowWindowSize defaults to 30 frames (~1 second at 30 Hz).
     FlowDeltaBuffer.Reserve(FlowWindowSize);
 
-    // CubeHomeOffsets and physics activation are handled by BP_ARGridSpawner
-    // at runtime via RebuildHomeLocations(). Nothing to do here at BeginPlay.
+    // Cache the ProximityDispatchComponent from the same owner actor.
+    // Used in ExecuteKinematicPhysics to read ProximityRadius without
+    // requiring a separate parameter on this component.
+    ProximityDispatch = GetOwner()
+        ? GetOwner()->FindComponentByClass<UProximityDispatchComponent>()
+        : nullptr;
+
+    if (!ProximityDispatch)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("UKinematicDescriptorComponent: ProximityDispatchComponent "
+                "not found on owner. Limb proximity checks will use "
+                "fallback radius of 80cm."));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -583,27 +592,32 @@ void UKinematicDescriptorComponent::UpdateRenderSubsystems(
 
 void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 {
-    if (!TrackedSkeleton || !bHomeOffsetsReady) return;
+    if (!bHomeOffsetsReady) return;
+    if (TrackedSkeletons.Num() == 0) return;
 
-    const FVector PelvisLoc =
-        TrackedSkeleton->GetSocketLocation(FName("Hips"));
-
-    struct FLimbDescriptor
-    {
-        FVector Dir;
-        float   Speed;
-        float   JointWeight;
-    };
-
-    const FLimbDescriptor Limbs[] =
-    {
-        { LWristVelocityDir, LWristSpeed, WEIGHT_WRIST  },
-        { RWristVelocityDir, RWristSpeed, WEIGHT_WRIST  },
-        { LElbowVelocityDir, LElbowSpeed, WEIGHT_ELBOW  },
-        { RElbowVelocityDir, RElbowSpeed, WEIGHT_ELBOW  },
-    };
+    // Read proximity radius from ProximityDispatchComponent.
+    // Fall back to 80cm if the component is not available.
+    const float LimbProximityRadius = (ProximityDispatch && IsValid(ProximityDispatch))
+        ? ProximityDispatch->ProximityRadius
+        : 80.0f;
 
     const float ExpansivenessScale = 0.5f + CurrentExpansiveness;
+
+    // Socket names for the four limb joints checked per skeleton.
+    // These match the ZED BODY_38 to Manny bone name mapping.
+    static const FName LimbSockets[] = {
+        FName("LeftHand"),
+        FName("RightHand"),
+        FName("LeftForeArm"),
+        FName("RightForeArm")
+    };
+
+    static const float LimbWeights[] = {
+        WEIGHT_WRIST,
+        WEIGHT_WRIST,
+        WEIGHT_ELBOW,
+        WEIGHT_ELBOW
+    };
 
     for (AActor* Cube : ARCubes)
     {
@@ -617,80 +631,115 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         const FVector CurrentLoc = Cube->GetActorLocation();
         const FVector CubeVelocity = PrimComp->GetComponentVelocity();
 
+        // Fixed world-space home position set at spawn time.
         const FVector HomeLoc = CubeHomeOffsets.Contains(Cube)
-            ? (PelvisLoc + CubeHomeOffsets[Cube])
+            ? CubeHomeOffsets[Cube]
             : CurrentLoc;
 
         const FVector ToHome = HomeLoc - CurrentLoc;
         const float   DistToHome = ToHome.Size();
 
-        const FVector OutwardNormal =
-            (CurrentLoc - PelvisLoc).GetSafeNormal();
-
         // -------------------------------------------------------------------
-        // FORMATION FOLLOWING — velocity matching, not spring force.
-        //
-        // Instead of a spring (force proportional to distance, which is either
-        // too weak near home or explosive when far), this computes the exact
-        // velocity the particle SHOULD have to reach home in one second, then
-        // applies a corrective acceleration to match that velocity.
-        //
-        // This behaves like a tightly-controlled servo: the bubble follows the
-        // performer at any walking speed without lag, and without the overshoot
-        // that a spring produces when the home target is moving.
-        //
-        // AttractorSpringConstant here acts as a "follow speed" in cm/s per cm
-        // of displacement. At 200.0 and 10cm of lag, follow velocity = 2000 cm/s.
-        // Clamped to MaxFollowSpeed to prevent teleporting on large displacements.
+        // ATTRACTOR — fixed home, trivially stable.
+        // Flow modulates tightness: Bound = snappy, Free = slow drift.
         // -------------------------------------------------------------------
 
-        const float MaxFollowSpeed = 400.0f;
-        const FVector DesiredFollowVelocity =
-            (ToHome * AttractorSpringConstant).GetClampedToMaxSize(MaxFollowSpeed);
+        const float FlowScale = FMath::Max(1.0f - CurrentFlow, 0.3f);
+        const float AttractorScale = 1.0f + FlowScale;
 
-        // Corrective acceleration drives current velocity toward desired follow
-        // velocity. Gain of 15.0 means the correction completes in ~1/15 second.
-        // This is the ONLY mechanism responsible for formation following.
-        const FVector FollowForce =
-            (DesiredFollowVelocity - CubeVelocity) * 15.0f;
+        const FVector AttractorForce = ToHome
+            * AttractorSpringConstant
+            * AttractorScale;
 
         // -------------------------------------------------------------------
-        // PER-LIMB REPULSOR — deformation only, independent of following.
-        // Only particles facing the limb's movement direction receive force.
-        // CurrentEffort = 0 at rest → zero repulsor → bubble rests quietly.
+        // PROXIMITY-BASED MULTI-PERFORMER REPULSOR
+        //
+        // For every tracked skeleton, check each of the four limb joints.
+        // A joint contributes force to this particle only when:
+        //   (a) The joint is within LimbProximityRadius of this particle.
+        //   (b) The joint has a valid velocity direction (moving above noise).
+        //
+        // Force magnitude scales with:
+        //   ProximityFactor — 1.0 when touching, 0.0 at the radius boundary.
+        //                     This creates a natural proximity field: particles
+        //                     very close to a limb react strongly, particles at
+        //                     the edge of the radius react gently.
+        //   NormalisedSpeed — limb speed clamped to [0,1].
+        //   CurrentEffort   — zero at rest, full at peak movement.
+        //   Weight factor   — maps [0,1] to [0.5,1.0].
+        //   LimbWeight      — anatomical importance (wrist > elbow).
+        //   ExpansivenessScale — spatial reach from LMA Space descriptor.
+        //
+        // Force direction = the limb's velocity direction, so a forward
+        // thrust pushes nearby particles forward, a lateral sweep pushes
+        // them sideways. The particle's outward normal is NOT used as the
+        // force direction — the force follows the limb's actual movement.
+        // The outward normal is used to compute the proximity factor gradient.
         // -------------------------------------------------------------------
 
         FVector AccumulatedRepulsorForce = FVector::ZeroVector;
 
-        for (const FLimbDescriptor& Limb : Limbs)
+        for (USkeletalMeshComponent* Skel : TrackedSkeletons)
         {
-            if (Limb.Speed < MIN_LIMB_SPEED_THRESHOLD) continue;
+            if (!Skel || !IsValid(Skel)) continue;
 
-            const float Alignment = FVector::DotProduct(OutwardNormal, Limb.Dir);
-            if (Alignment <= 0.0f) continue;
+            for (int32 i = 0; i < 4; ++i)
+            {
+                const FVector LimbWorldPos =
+                    Skel->GetSocketLocation(LimbSockets[i]);
 
-            const float NormalisedSpeed = FMath::Clamp(
-                Limb.Speed / REF_MAX_LIMB_SPEED, 0.0f, 1.0f);
+                const float DistToLimb =
+                    FVector::Dist(CurrentLoc, LimbWorldPos);
 
-            const float LimbForceMag =
-                NormalisedSpeed
-                * Alignment
-                * CurrentEffort
-                * (0.5f + CurrentWeight * 0.5f)
-                * Limb.JointWeight
-                * ExpansivenessScale;
+                // Skip if limb is outside the proximity radius.
+                if (DistToLimb >= LimbProximityRadius) continue;
 
-            AccumulatedRepulsorForce += Limb.Dir * LimbForceMag;
+                // ProximityFactor: 1.0 at zero distance, 0.0 at radius edge.
+                const float ProximityFactor =
+                    1.0f - (DistToLimb / LimbProximityRadius);
+
+                // Compute limb velocity from pre-computed per-limb state.
+                // Use the per-limb direction vectors already computed in
+                // ComputeLMADescriptors for the primary tracked skeleton.
+                // For secondary performers, approximate from socket motion
+                // by using the matching limb direction from the primary.
+                // Full per-skeleton velocity tracking is a future extension.
+                FVector LimbDir = FVector::ZeroVector;
+                float   LimbSpeed = 0.0f;
+
+                switch (i)
+                {
+                case 0: LimbDir = LWristVelocityDir; LimbSpeed = LWristSpeed; break;
+                case 1: LimbDir = RWristVelocityDir; LimbSpeed = RWristSpeed; break;
+                case 2: LimbDir = LElbowVelocityDir; LimbSpeed = LElbowSpeed; break;
+                case 3: LimbDir = RElbowVelocityDir; LimbSpeed = RElbowSpeed; break;
+                default: break;
+                }
+
+                if (LimbSpeed < MIN_LIMB_SPEED_THRESHOLD) continue;
+                if (LimbDir.IsNearlyZero()) continue;
+
+                const float NormalisedSpeed = FMath::Clamp(
+                    LimbSpeed / REF_MAX_LIMB_SPEED, 0.0f, 1.0f);
+
+                const float ForceMag =
+                    ProximityFactor
+                    * NormalisedSpeed
+                    * CurrentEffort
+                    * (0.5f + CurrentWeight * 0.5f)
+                    * LimbWeights[i]
+                    * ExpansivenessScale;
+
+                AccumulatedRepulsorForce += LimbDir * ForceMag;
+            }
         }
 
         const FVector RepulsorForce =
             AccumulatedRepulsorForce * RepulsorForceMultiplier;
 
         // -------------------------------------------------------------------
-        // SAFETY TETHER
-        // Hard exponential restoring force beyond the deformation radius.
-        // Prevents any particle escaping the formation permanently.
-        // This works WITH the velocity-matching follow, not against it.
+        // SAFETY TETHER — hard exponential cap at MAX_DEFORMATION_RADIUS.
+        // With a fixed home this is unconditionally reliable.
         // -------------------------------------------------------------------
 
         static constexpr float MAX_DEFORMATION_RADIUS = 80.0f;
@@ -703,17 +752,11 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
                 * (Violation * Violation * 150.0f);
         }
 
-        // -------------------------------------------------------------------
-        // DRAG — via Chaos solver, unconditionally stable.
-        // BaseDragCoefficient = 3.0 recommended.
-        // This damps the deformation oscillation after a repulsor push.
-        // The follow force handles formation velocity independently.
-        // -------------------------------------------------------------------
-
+        // Chaos solver stable damping.
         PrimComp->SetLinearDamping(BaseDragCoefficient);
 
         PrimComp->AddForce(
-            FollowForce + RepulsorForce + TetherForce,
+            AttractorForce + RepulsorForce + TetherForce,
             NAME_None,
             /*bAccelChange=*/ true);
     }
@@ -743,44 +786,33 @@ void UKinematicDescriptorComponent::RebuildHomeLocations()
 {
     CubeHomeOffsets.Empty();
 
-    if (!TrackedSkeleton || !IsValid(TrackedSkeleton))
+    if (ARCubes.Num() == 0)
     {
         UE_LOG(LogTemp, Warning,
             TEXT("UKinematicDescriptorComponent: RebuildHomeLocations called "
-                "while TrackedSkeleton is null or invalid. Home offsets "
-                "not set. Physics will remain suspended."));
+                "with empty ARCubes array."));
         return;
     }
-
-    const FVector PelvisNow =
-        TrackedSkeleton->GetSocketLocation(FName("Hips"));
 
     int32 AnchoredCount = 0;
 
     for (AActor* Cube : ARCubes)
     {
-        // Skip null or already-destroyed entries.
         if (!Cube || !IsValid(Cube)) continue;
 
-        // Store the vector from the live pelvis to this cube's world position.
-        // Each tick replays this offset against the new pelvis position.
-        CubeHomeOffsets.Add(Cube, Cube->GetActorLocation() - PelvisNow);
+        // Store the cube's spawn world position as its permanent home.
+        // The static bubble model uses fixed world-space home positions.
+        // Particles deform from these positions and always return to them.
+        CubeHomeOffsets.Add(Cube, Cube->GetActorLocation());
         ++AnchoredCount;
     }
 
-    // Set the physics gate. ExecuteKinematicPhysics will begin running on
-    // the next tick. All particle physics components must already be active
-    // at this point (enabled by BP_ARGridSpawner before calling this).
     bHomeOffsetsReady = true;
 
     UE_LOG(LogTemp, Log,
         TEXT("UKinematicDescriptorComponent: RebuildHomeLocations complete — "
-            "%d / %d cubes anchored. "
-            "Pelvis at (%.1f, %.1f, %.1f). "
-            "Physics gate opened. Bubble is now active."),
-        AnchoredCount,
-        ARCubes.Num(),
-        PelvisNow.X, PelvisNow.Y, PelvisNow.Z);
+            "%d / %d cubes anchored at world-space spawn positions."),
+        AnchoredCount, ARCubes.Num());
 }
 
 // ---------------------------------------------------------------------------
