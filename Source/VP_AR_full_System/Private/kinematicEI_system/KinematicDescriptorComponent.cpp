@@ -621,55 +621,41 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             ? (PelvisLoc + CubeHomeOffsets[Cube])
             : CurrentLoc;
 
+        const FVector ToHome = HomeLoc - CurrentLoc;
+        const float   DistToHome = ToHome.Size();
+
         const FVector OutwardNormal =
             (CurrentLoc - PelvisLoc).GetSafeNormal();
 
         // -------------------------------------------------------------------
-        // ATTRACTOR
-        // Flow modulates AttractorScale in [1.3, 2.0].
-        // Bound (low Flow) = tighter, snappier formation.
-        // Free  (high Flow) = looser, drifting formation.
-        // The base 1.0 ensures the bubble always follows the performer.
-        // -------------------------------------------------------------------
-
-        // -------------------------------------------------------------------
-        // FORCE 1 — FORMATION TRANSLATOR
+        // FORMATION FOLLOWING — velocity matching, not spring force.
         //
-        // Moves the entire bubble formation with the performer's pelvis.
-        // This force is constant, strong, and completely independent of LMA
-        // descriptors. It is the only mechanism responsible for making the
-        // bubble follow the body. It is never weakened by Flow or Effort.
+        // Instead of a spring (force proportional to distance, which is either
+        // too weak near home or explosive when far), this computes the exact
+        // velocity the particle SHOULD have to reach home in one second, then
+        // applies a corrective acceleration to match that velocity.
         //
-        // Strength is calibrated so the formation catches up to a walking
-        // performer (50 cm/s) within 0.5 seconds:
-        //   Required force ≈ 50 / 0.5 = 100 cm/s²
-        //   With AttractorSpringConstant = 200: 60cm lag → 200 × 60 = 12000 ✓
-        // -------------------------------------------------------------------
-
-        const FVector ToHome = HomeLoc - CurrentLoc;
-        const float   DistToHome = ToHome.Size();
-
-        const FVector FormationForce = ToHome * AttractorSpringConstant;
-
-        // -------------------------------------------------------------------
-        // FORCE 2 — LMA DEFORMATION RECOVERY SPRING
+        // This behaves like a tightly-controlled servo: the bubble follows the
+        // performer at any walking speed without lag, and without the overshoot
+        // that a spring produces when the home target is moving.
         //
-        // A secondary, weaker spring that handles artistic deformation recovery.
-        // Flow modulates this spring: Bound = tight snap-back, Free = slow drift.
-        // This force is much weaker than FormationForce so it does not fight it.
-        // Its sole purpose is to give the deformation a quality that reflects
-        // the LMA Flow descriptor.
+        // AttractorSpringConstant here acts as a "follow speed" in cm/s per cm
+        // of displacement. At 200.0 and 10cm of lag, follow velocity = 2000 cm/s.
+        // Clamped to MaxFollowSpeed to prevent teleporting on large displacements.
         // -------------------------------------------------------------------
 
-        const float DeformationSpringScale = FMath::Max(1.0f - CurrentFlow, 0.3f);
-        const FVector DeformationForce = ToHome
-            * (AttractorSpringConstant * 0.3f)
-            * DeformationSpringScale;
+        const float MaxFollowSpeed = 400.0f;
+        const FVector DesiredFollowVelocity =
+            (ToHome * AttractorSpringConstant).GetClampedToMaxSize(MaxFollowSpeed);
 
-        const FVector AttractorForce = FormationForce + DeformationForce;
+        // Corrective acceleration drives current velocity toward desired follow
+        // velocity. Gain of 15.0 means the correction completes in ~1/15 second.
+        // This is the ONLY mechanism responsible for formation following.
+        const FVector FollowForce =
+            (DesiredFollowVelocity - CubeVelocity) * 15.0f;
 
         // -------------------------------------------------------------------
-        // PER-LIMB REPULSOR
+        // PER-LIMB REPULSOR — deformation only, independent of following.
         // Only particles facing the limb's movement direction receive force.
         // CurrentEffort = 0 at rest → zero repulsor → bubble rests quietly.
         // -------------------------------------------------------------------
@@ -702,46 +688,32 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 
         // -------------------------------------------------------------------
         // SAFETY TETHER
-        // Exponential restorative force that activates beyond MAX_DEFORMATION_RADIUS.
-        // Prevents any particle from escaping the formation permanently
-        // regardless of repulsor magnitude or frame timing.
+        // Hard exponential restoring force beyond the deformation radius.
+        // Prevents any particle escaping the formation permanently.
+        // This works WITH the velocity-matching follow, not against it.
         // -------------------------------------------------------------------
 
-        static constexpr float MAX_DEFORMATION_RADIUS = 100.0f;
+        static constexpr float MAX_DEFORMATION_RADIUS = 80.0f;
         FVector TetherForce = FVector::ZeroVector;
-        const float DistFromHome = ToHome.Size();
 
-        if (DistFromHome > MAX_DEFORMATION_RADIUS)
+        if (DistToHome > MAX_DEFORMATION_RADIUS)
         {
-            const float Violation = DistFromHome - MAX_DEFORMATION_RADIUS;
+            const float Violation = DistToHome - MAX_DEFORMATION_RADIUS;
             TetherForce = ToHome.GetSafeNormal()
-                * (Violation * Violation * 100.0f);
+                * (Violation * Violation * 150.0f);
         }
 
         // -------------------------------------------------------------------
-        // DRAG — delegated to the Chaos physics solver via SetLinearDamping.
-        //
-        // This replaces the manual DragForce = -Velocity × Coefficient pattern.
-        // Manual drag applied via AddForce is vulnerable to Euler integration
-        // explosion on large DeltaTime frames (PIE startup hitch, frame drops).
-        // When DeltaTime × Drag > 2, the solver reverses and amplifies velocity
-        // each frame, causing instant escape. SetLinearDamping uses the solver's
-        // own implicit exponential integration, which is unconditionally stable.
-        //
-        // Critical damping condition with AttractorScale at minimum (1.3):
-        //   k_eff = AttractorSpringConstant × 1.3
-        //   c_crit = 2 × sqrt(k_eff)
-        // With AttractorSpringConstant = 120:
-        //   k_eff = 156, c_crit = 2 × sqrt(156) ≈ 25
-        // Set BaseDragCoefficient = 25 in the Details panel.
+        // DRAG — via Chaos solver, unconditionally stable.
+        // BaseDragCoefficient = 3.0 recommended.
+        // This damps the deformation oscillation after a repulsor push.
+        // The follow force handles formation velocity independently.
         // -------------------------------------------------------------------
 
         PrimComp->SetLinearDamping(BaseDragCoefficient);
 
-        // Apply attractor + repulsor + tether as mass-independent acceleration.
-        // Drag is handled by SetLinearDamping above, not included here.
         PrimComp->AddForce(
-            AttractorForce + RepulsorForce + TetherForce,
+            FollowForce + RepulsorForce + TetherForce,
             NAME_None,
             /*bAccelChange=*/ true);
     }
