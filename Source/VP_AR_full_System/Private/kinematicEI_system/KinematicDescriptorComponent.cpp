@@ -732,12 +732,33 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // -------------------------------------------------------------------
         const FVector DragForce = -CubeVelocity * BaseDragCoefficient;
 
+        // -------------------------------------------------------------------
+        // THE SAFETY TETHER (Case B)
+        // -------------------------------------------------------------------
+        // Maximum allowed distance a cube can be pushed from its home offset.
+        // 100.0f = 1 meter of maximum deformation. Adjust this to your liking.
+        static constexpr float MAX_DEFORMATION_RADIUS = 100.0f;
+
+        FVector TetherForce = FVector::ZeroVector;
+        const float CurrentDistFromHome = ToHome.Size();
+
+        if (CurrentDistFromHome > MAX_DEFORMATION_RADIUS)
+        {
+            // Calculate how far out of bounds the particle is
+            const float ViolationAmount = CurrentDistFromHome - MAX_DEFORMATION_RADIUS;
+
+            // Exponentially scale a restorative force. 
+            // The further it tries to escape, the infinitely harder it gets pulled back.
+            // Multiplying by 100.0f ensures it easily overpowers the Repulsor force.
+            TetherForce = ToHome.GetSafeNormal() * (ViolationAmount * ViolationAmount * 100.0f);
+        }
+
         // Apply the combined force as a pure acceleration (bAccelChange = true).
         // Acceleration mode is mass-independent, ensuring all particles in
         // the bubble respond identically regardless of physics body mass.
         // FIX: Removed the manual velocity cap that fought the integration step.
         PrimComp->AddForce(
-            AttractorForce + RepulsorForce + DragForce,
+            AttractorForce + RepulsorForce + DragForce + TetherForce,
             NAME_None,
             /*bAccelChange=*/ true);
     }
