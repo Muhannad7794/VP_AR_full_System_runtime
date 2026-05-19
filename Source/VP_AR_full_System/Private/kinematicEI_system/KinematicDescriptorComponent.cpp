@@ -221,40 +221,46 @@ void UKinematicDescriptorComponent::TickComponent(
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    // Guard: no skeleton assigned yet (pre-BeginPlay delay period).
-    if (!TrackedSkeleton) return;
+    // Auto-discover all ZED Manny skeletal mesh components every tick.
+    // This removes all Blueprint dependency for TrackedSkeletons population.
+    TrackedSkeletons.Empty();
+    TArray<AActor*> FoundActors;
+    UGameplayStatics::GetAllActorsOfClass(
+        GetWorld(),
+        AActor::StaticClass(),
+        FoundActors);
 
-    // Guard: ZED LiveLink plugin destroys and recreates BP_ZED_Manny whenever
-    // a skeleton enters or leaves the camera frame. If the actor has been
-    // garbage-collected, reset all state cleanly and stop processing until
-    // TrackedSkeleton is reassigned by the Level Blueprint sequence.
-    if (!IsValid(TrackedSkeleton))
+    for (AActor* Actor : FoundActors)
+    {
+        if (!Actor || !IsValid(Actor)) continue;
+        if (!Actor->GetName().Contains(TEXT("ZED_Manny"))) continue;
+
+        USkeletalMeshComponent* Skel =
+            Actor->FindComponentByClass<USkeletalMeshComponent>();
+        if (Skel && IsValid(Skel))
+        {
+            TrackedSkeletons.Add(Skel);
+
+            // Keep TrackedSkeleton (singular) pointing to the first found
+            // skeleton for LMA descriptor computation.
+            if (!TrackedSkeleton || !IsValid(TrackedSkeleton))
+            {
+                TrackedSkeleton = Skel;
+                bFirstDescriptorFrame = true;
+            }
+        }
+    }
+
+    // If no skeletons found, reset state and wait.
+    if (TrackedSkeletons.Num() == 0)
     {
         TrackedSkeleton = nullptr;
-        bHomeOffsetsReady = false;
-        bFirstDescriptorFrame = true;
-
-        // Zero descriptor outputs so the MPC does not show stale values.
-        CurrentEffort = CurrentExpansiveness = CurrentWeight = CurrentFlow = 0.0f;
-        DebugEffort = DebugExpansiveness = DebugWeight = DebugFlow = 0.0f;
-
-        // Zero per-limb state to prevent stale directions producing phantom
-        // forces when the next valid skeleton frame arrives.
-        LWristVelocityDir = RWristVelocityDir =
-            LElbowVelocityDir = RElbowVelocityDir = FVector::ZeroVector;
-        LWristSpeed = RWristSpeed = LElbowSpeed = RElbowSpeed = 0.0f;
-
-        FlowDeltaBuffer.Empty();
-
-        UE_LOG(LogTemp, Warning,
-            TEXT("UKinematicDescriptorComponent: TrackedSkeleton actor was "
-                "destroyed (skeleton left camera frame). All state reset. "
-                "Waiting for TrackedSkeleton to be reassigned."));
         return;
     }
 
-    // Read raw joint positions from the skeleton and apply 1 Euro Filter
-    // to each joint independently.
+    if (!TrackedSkeleton || !IsValid(TrackedSkeleton))
+        return;
+
     FVector CleanSpine;
     FVector CleanLWrist, CleanRWrist;
     FVector CleanLElbow, CleanRElbow;
@@ -267,9 +273,6 @@ void UKinematicDescriptorComponent::TickComponent(
         CleanLElbow, CleanRElbow,
         CleanLShoulder, CleanRShoulder);
 
-    // Compute LMA descriptors from filtered joint data. Also updates
-    // per-limb velocity direction and speed member variables consumed
-    // by ExecuteKinematicPhysics.
     ComputeLMADescriptors(
         DeltaTime,
         CleanSpine,
@@ -277,13 +280,10 @@ void UKinematicDescriptorComponent::TickComponent(
         CleanLElbow, CleanRElbow,
         CleanLShoulder, CleanRShoulder);
 
-    // Write descriptor values and pelvis world position to the MPC and
-    // Niagara system for GPU-side material and particle effects.
     const FVector PelvisLoc =
         TrackedSkeleton->GetSocketLocation(FName("Hips"));
     UpdateRenderSubsystems(PelvisLoc);
 
-    // Apply per-particle physics forces. Gated internally on bHomeOffsetsReady.
     ExecuteKinematicPhysics();
 }
 
