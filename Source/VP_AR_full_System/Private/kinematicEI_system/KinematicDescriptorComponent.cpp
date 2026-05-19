@@ -632,13 +632,41 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // The base 1.0 ensures the bubble always follows the performer.
         // -------------------------------------------------------------------
 
-        const FVector ToHome = HomeLoc - CurrentLoc;
-        const float   LMAScale = FMath::Max(1.0f - CurrentFlow, 0.3f);
-        const float   AttractorScale = 1.0f + LMAScale;
+        // -------------------------------------------------------------------
+        // FORCE 1 — FORMATION TRANSLATOR
+        //
+        // Moves the entire bubble formation with the performer's pelvis.
+        // This force is constant, strong, and completely independent of LMA
+        // descriptors. It is the only mechanism responsible for making the
+        // bubble follow the body. It is never weakened by Flow or Effort.
+        //
+        // Strength is calibrated so the formation catches up to a walking
+        // performer (50 cm/s) within 0.5 seconds:
+        //   Required force ≈ 50 / 0.5 = 100 cm/s²
+        //   With AttractorSpringConstant = 200: 60cm lag → 200 × 60 = 12000 ✓
+        // -------------------------------------------------------------------
 
-        const FVector AttractorForce = ToHome
-            * AttractorSpringConstant
-            * AttractorScale;
+        const FVector ToHome = HomeLoc - CurrentLoc;
+        const float   DistToHome = ToHome.Size();
+
+        const FVector FormationForce = ToHome * AttractorSpringConstant;
+
+        // -------------------------------------------------------------------
+        // FORCE 2 — LMA DEFORMATION RECOVERY SPRING
+        //
+        // A secondary, weaker spring that handles artistic deformation recovery.
+        // Flow modulates this spring: Bound = tight snap-back, Free = slow drift.
+        // This force is much weaker than FormationForce so it does not fight it.
+        // Its sole purpose is to give the deformation a quality that reflects
+        // the LMA Flow descriptor.
+        // -------------------------------------------------------------------
+
+        const float DeformationSpringScale = FMath::Max(1.0f - CurrentFlow, 0.3f);
+        const FVector DeformationForce = ToHome
+            * (AttractorSpringConstant * 0.3f)
+            * DeformationSpringScale;
+
+        const FVector AttractorForce = FormationForce + DeformationForce;
 
         // -------------------------------------------------------------------
         // PER-LIMB REPULSOR
