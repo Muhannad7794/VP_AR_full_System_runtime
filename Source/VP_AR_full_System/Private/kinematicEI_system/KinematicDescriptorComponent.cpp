@@ -583,21 +583,16 @@ void UKinematicDescriptorComponent::UpdateRenderSubsystems(
 
 void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 {
-    // Physics is gated on both skeleton validity and home offset readiness.
-    // bHomeOffsetsReady is set true only after RebuildHomeLocations() has
-    // successfully anchored all particle home positions. Before that, no
-    // forces are applied and particles remain at their spawn positions.
     if (!TrackedSkeleton || !bHomeOffsetsReady) return;
 
     const FVector PelvisLoc =
         TrackedSkeleton->GetSocketLocation(FName("Hips"));
 
-    // Build the per-limb descriptor array for the inner force computation.
     struct FLimbDescriptor
     {
-        FVector Dir;        // Smoothed world-space velocity direction unit vector.
-        float   Speed;      // Raw speed scalar (cm/s).
-        float   JointWeight;// Anatomical importance weighting.
+        FVector Dir;
+        float   Speed;
+        float   JointWeight;
     };
 
     const FLimbDescriptor Limbs[] =
@@ -608,56 +603,33 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         { RElbowVelocityDir, RElbowSpeed, WEIGHT_ELBOW  },
     };
 
-    // Maps CurrentExpansiveness [0,1] to [0.5, 1.5]. The 0.5 floor ensures
-    // some spatial reach even during fully contracted movement.
     const float ExpansivenessScale = 0.5f + CurrentExpansiveness;
 
     for (AActor* Cube : ARCubes)
     {
-        // Skip null entries and actors that have been garbage-collected
-        // (e.g. if the level is being torn down mid-session).
         if (!Cube || !IsValid(Cube)) continue;
 
         UPrimitiveComponent* PrimComp =
             Cube->FindComponentByClass<UPrimitiveComponent>();
 
-        // Skip actors without an active physics simulation. Physics is
-        // enabled per-particle by BP_ARGridSpawner after RebuildHomeLocations.
         if (!PrimComp || !PrimComp->IsSimulatingPhysics()) continue;
 
         const FVector CurrentLoc = Cube->GetActorLocation();
         const FVector CubeVelocity = PrimComp->GetComponentVelocity();
 
-        // -------------------------------------------------------------------
-        // HOME POSITION: pelvis world location + stored pelvis-relative offset.
-        //
-        // This recomputes every tick as the live pelvis moves through the stage.
-        // The entire bubble formation translates with the performer continuously.
-        // If no offset exists for this cube (edge case — should not occur after
-        // RebuildHomeLocations), fall back to current location (zero attractor).
-        // -------------------------------------------------------------------
-
         const FVector HomeLoc = CubeHomeOffsets.Contains(Cube)
             ? (PelvisLoc + CubeHomeOffsets[Cube])
             : CurrentLoc;
 
-        // Outward normal: direction from the body centre to this particle.
-        // This is the "outward" direction of the bubble surface at this point.
         const FVector OutwardNormal =
             (CurrentLoc - PelvisLoc).GetSafeNormal();
 
         // -------------------------------------------------------------------
-        // ATTRACTOR FORCE
-        //
-        // Pulls each particle toward its continuously-updated home position.
-        // Two-component scaling:
-        //   BaseScale (1.0)  — constant, always-on. Ensures the formation
-        //                      follows the performer at any movement speed.
-        //   LMAScale         — ranges [0.3, 1.0] inversely with Flow.
-        //                      Bound (low Flow)  = tight formation.
-        //                      Free  (high Flow) = loose, drifting particles.
-        // Combined scale range: [1.3, 2.0].
-        // The minimum of 1.3 at maximum Free ensures particles always return.
+        // ATTRACTOR
+        // Flow modulates AttractorScale in [1.3, 2.0].
+        // Bound (low Flow) = tighter, snappier formation.
+        // Free  (high Flow) = looser, drifting formation.
+        // The base 1.0 ensures the bubble always follows the performer.
         // -------------------------------------------------------------------
 
         const FVector ToHome = HomeLoc - CurrentLoc;
@@ -669,31 +641,9 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             * AttractorScale;
 
         // -------------------------------------------------------------------
-        // PER-LIMB REPULSOR FORCE (directional "spherical cloth" deformation)
-        //
-        // Each limb is evaluated independently. A limb contributes repulsor
-        // force to this particle only when both conditions are met:
-        //   (a) Limb speed exceeds MIN_LIMB_SPEED_THRESHOLD (limb is actively
-        //       moving, not just tracker noise).
-        //   (b) The particle faces the limb's movement direction (dot product
-        //       of OutwardNormal and limb velocity direction > 0).
-        //
-        // Force direction = the limb's velocity direction (not radially outward).
-        // A forward thrust pushes the bubble forward.
-        // A lateral sweep pushes the bubble sideways.
-        // A pull movement (limb moving away from bubble surface) produces
-        // Alignment ≤ 0 on the retreating face — no push on that face.
-        // The attractor then pulls those particles inward, creating the
-        // implicit "sucked in" deformation effect.
-        //
-        // Force magnitude per limb:
-        //   NormalisedSpeed   — speed clamped to [0,1] against 400 cm/s.
-        //   Alignment         — how directly the particle faces the movement.
-        //   CurrentEffort     — ensures a subtle response to gentle movement without phantom drifting.
-        //   Weight factor     — maps Weight [0,1] to [0.5,1.0], amplifying
-        //                       Strong moves and reducing Light ones.
-        //   JointWeight       — anatomical importance (wrist > elbow).
-        //   ExpansivenessScale— spatial reach multiplier.
+        // PER-LIMB REPULSOR
+        // Only particles facing the limb's movement direction receive force.
+        // CurrentEffort = 0 at rest → zero repulsor → bubble rests quietly.
         // -------------------------------------------------------------------
 
         FVector AccumulatedRepulsorForce = FVector::ZeroVector;
@@ -708,7 +658,6 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             const float NormalisedSpeed = FMath::Clamp(
                 Limb.Speed / REF_MAX_LIMB_SPEED, 0.0f, 1.0f);
 
-            // FIX: Removed the FMath::Max(CurrentEffort, 0.05f) floor that caused constant phantom drift.
             const float LimbForceMag =
                 NormalisedSpeed
                 * Alignment
@@ -724,41 +673,47 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             AccumulatedRepulsorForce * RepulsorForceMultiplier;
 
         // -------------------------------------------------------------------
-        // DRAG FORCE
-        //
-        // Velocity-proportional damping that prevents infinite oscillation.
-        // FIX: Removed LMADragScale completely. The system now utilizes the 
-        // base drag coefficient constantly to maintain critical damping.
+        // SAFETY TETHER
+        // Exponential restorative force that activates beyond MAX_DEFORMATION_RADIUS.
+        // Prevents any particle from escaping the formation permanently
+        // regardless of repulsor magnitude or frame timing.
         // -------------------------------------------------------------------
-        const FVector DragForce = -CubeVelocity * BaseDragCoefficient;
 
-        // -------------------------------------------------------------------
-        // THE SAFETY TETHER (Case B)
-        // -------------------------------------------------------------------
-        // Maximum allowed distance a cube can be pushed from its home offset.
-        // 100.0f = 1 meter of maximum deformation. Adjust this to your liking.
         static constexpr float MAX_DEFORMATION_RADIUS = 100.0f;
-
         FVector TetherForce = FVector::ZeroVector;
-        const float CurrentDistFromHome = ToHome.Size();
+        const float DistFromHome = ToHome.Size();
 
-        if (CurrentDistFromHome > MAX_DEFORMATION_RADIUS)
+        if (DistFromHome > MAX_DEFORMATION_RADIUS)
         {
-            // Calculate how far out of bounds the particle is
-            const float ViolationAmount = CurrentDistFromHome - MAX_DEFORMATION_RADIUS;
-
-            // Exponentially scale a restorative force. 
-            // The further it tries to escape, the infinitely harder it gets pulled back.
-            // Multiplying by 100.0f ensures it easily overpowers the Repulsor force.
-            TetherForce = ToHome.GetSafeNormal() * (ViolationAmount * ViolationAmount * 100.0f);
+            const float Violation = DistFromHome - MAX_DEFORMATION_RADIUS;
+            TetherForce = ToHome.GetSafeNormal()
+                * (Violation * Violation * 100.0f);
         }
 
-        // Apply the combined force as a pure acceleration (bAccelChange = true).
-        // Acceleration mode is mass-independent, ensuring all particles in
-        // the bubble respond identically regardless of physics body mass.
-        // FIX: Removed the manual velocity cap that fought the integration step.
+        // -------------------------------------------------------------------
+        // DRAG — delegated to the Chaos physics solver via SetLinearDamping.
+        //
+        // This replaces the manual DragForce = -Velocity × Coefficient pattern.
+        // Manual drag applied via AddForce is vulnerable to Euler integration
+        // explosion on large DeltaTime frames (PIE startup hitch, frame drops).
+        // When DeltaTime × Drag > 2, the solver reverses and amplifies velocity
+        // each frame, causing instant escape. SetLinearDamping uses the solver's
+        // own implicit exponential integration, which is unconditionally stable.
+        //
+        // Critical damping condition with AttractorScale at minimum (1.3):
+        //   k_eff = AttractorSpringConstant × 1.3
+        //   c_crit = 2 × sqrt(k_eff)
+        // With AttractorSpringConstant = 120:
+        //   k_eff = 156, c_crit = 2 × sqrt(156) ≈ 25
+        // Set BaseDragCoefficient = 25 in the Details panel.
+        // -------------------------------------------------------------------
+
+        PrimComp->SetLinearDamping(BaseDragCoefficient);
+
+        // Apply attractor + repulsor + tether as mass-independent acceleration.
+        // Drag is handled by SetLinearDamping above, not included here.
         PrimComp->AddForce(
-            AttractorForce + RepulsorForce + DragForce + TetherForce,
+            AttractorForce + RepulsorForce + TetherForce,
             NAME_None,
             /*bAccelChange=*/ true);
     }
