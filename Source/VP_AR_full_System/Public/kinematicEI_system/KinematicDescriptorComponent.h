@@ -180,6 +180,22 @@ public:
     float TetherCoefficient = 250.0f;
 
     // -----------------------------------------------------------------------
+    // Physics Tuning — Velocity Cap
+    // -----------------------------------------------------------------------
+
+    /** 
+    * Hard maximum speed (cm/s) for any particle.
+    * Prevents accumulated velocity from consecutive fast movements from
+    * exceeding the tether's ability to decelerate the particle in a single
+    * physics tick. Ensures the sphere formation is never permanently lost
+    * under rapid repeated movements.
+    * Recommended range: 200–400. Default: 300.0
+    */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics|VelocityCap",
+        meta = (ClampMin = "10.0", ClampMax = "2000.0"))
+    float MaxParticleVelocity = 300.0f;
+
+    // -----------------------------------------------------------------------
     // Adaptive Normalization Parameters
     // -----------------------------------------------------------------------
 

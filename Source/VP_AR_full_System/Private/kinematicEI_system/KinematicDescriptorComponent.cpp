@@ -632,6 +632,16 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
             AttractorForce + RepulsorForce + TetherForce,
             NAME_None,
             /*bAccelChange=*/ true);
+
+        // Velocity cap — prevents accumulated velocity from consecutive fast
+        // movements from overcoming the tether and attractor in a single tick.
+        const FVector PhysicsVelocity = PrimComp->GetPhysicsLinearVelocity();
+        const float   CurrentSpeed = PhysicsVelocity.Size();
+        if (CurrentSpeed > MaxParticleVelocity)
+        {
+            PrimComp->SetPhysicsLinearVelocity(
+                PhysicsVelocity.GetSafeNormal() * MaxParticleVelocity);
+        }
     }
 }
 
