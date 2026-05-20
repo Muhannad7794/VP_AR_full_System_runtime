@@ -454,9 +454,9 @@ void UKinematicDescriptorComponent::UpdateRenderSubsystems(
         UKismetMaterialLibrary::SetScalarParameterValue(
             World, GlobalMPC, FName("FlowLevel"), CurrentFlow);
 
-        UKismetMaterialLibrary::SetVectorParameterValue(
+        /*UKismetMaterialLibrary::SetVectorParameterValue(
             World, GlobalMPC, FName("PelvisWorldLocation"),
-            FLinearColor(PelvisLocation.X, PelvisLocation.Y, PelvisLocation.Z, 1.0f));
+            FLinearColor(PelvisLocation.X, PelvisLocation.Y, PelvisLocation.Z, 1.0f));*/
     }
 
     if (ParticleSystem)
