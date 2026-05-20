@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Component: UKinematicDescriptorComponent
  * Purpose: Master ingestion and computation node for Embodied Interaction.
  * Reads raw skeletal data from a ZED LiveLink-driven SkeletalMeshComponent,
@@ -19,6 +19,25 @@
  *   tracker. The observed range expands quickly when new extremes are reached
  *   and contracts slowly during calmer periods, removing the need for hardcoded
  *   calibration constants.
+ *
+ * STATIC BUBBLE ARCHITECTURE
+ * ──────────────────────────
+ * The bubble is a fixed sphere of physics-simulated particle actors anchored at
+ * the world position of BP_ARGridSpawner. It does not follow any performer.
+ * RebuildHomeLocations() stores the absolute world-space spawn position of each
+ * particle. ExecuteKinematicPhysics() always pulls particles back to that fixed
+ * absolute position — home is never recomputed from the pelvis.
+ *
+ * FORCE MODEL CALIBRATION
+ * ───────────────────────
+ * AttractorSpringConstant and RepulsorForceMultiplier must be balanced.
+ * Equilibrium displacement = RepulsorForceMultiplier × MaxNormForceMag
+ *                            / AttractorSpringConstant
+ * With defaults below (15 and 8000):
+ *   max normalized force mag ≈ 1.5 (wrist + elbow at full Effort/Weight)
+ *   equilibrium ≈ 8000 × 1.5 / 15 = 800 cm (capped by tether at 80cm)
+ * This ensures visually clear displacement into the tether range.
+ * The old defaults (500 and 1000) gave equilibrium ≈ 3cm — imperceptible.
  */
 
 #pragma once
@@ -53,7 +72,10 @@ public:
     // Core System Architecture References
     // -----------------------------------------------------------------------
 
-    // Rebuilds home offsets relative to the current pelvis position.
+    // Stores absolute world-space spawn positions for all particles.
+    // Call after BP_ARGridSpawner has placed particles and enabled physics.
+    // TrackedSkeleton is NOT required — home positions are independent of
+    // any performer's location in the static bubble model.
     UFUNCTION(BlueprintCallable, Category = "KinematicEI|Physics")
     void RebuildHomeLocations();
 
@@ -74,12 +96,13 @@ public:
     TArray<AActor*> ARCubes;
 
     // Reference to ProximityDispatchComponent on the same actor.
-    // Cached at BeginPlay. Used to read ProximityRadius for limb proximity checks.
+    // Cached at BeginPlay. Used to read ProximityRadius for limb proximity checks
+    // in ExecuteKinematicPhysics.
     UPROPERTY()
     UProximityDispatchComponent* ProximityDispatch;
 
     // All active ZED-tracked skeletal meshes in the scene.
-    // Updated every second by the Level Blueprint timer.
+    // Populated every tick by auto-discovery of BP_ZED_Manny actors.
     // Physics loop checks all entries for proximity to each particle.
     UPROPERTY(BlueprintReadWrite, Category = "KinematicEI|References")
     TArray<USkeletalMeshComponent*> TrackedSkeletons;
@@ -88,17 +111,50 @@ public:
     // Physics Tuning Parameters
     // -----------------------------------------------------------------------
 
-    /** Spring constant pulling cubes back toward their home formation. Scaled by (1 - Flow). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics")
-    float AttractorSpringConstant = 500.0f;
+    /**
+     * Spring constant pulling particles back toward their static home positions.
+     * Scaled by (1 - Flow): Bound = tight snap-back, Free = slow drift.
+     *
+     * CRITICAL: This value must be small relative to RepulsorForceMultiplier.
+     * Equilibrium displacement = (RepulsorForceMultiplier × ~1.5) / AttractorSpringConstant
+     * At 15.0 (default): equilibrium ≈ 800 cm, capped by tether — clear displacement.
+     * At 500.0 (old value): equilibrium ≈ 3 cm — particles appear completely static.
+     *
+     * Do NOT raise this above 40 unless RepulsorForceMultiplier is also raised
+     * proportionally. Tuning range: 10–30.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics",
+        meta = (ClampMin = "1.0", ClampMax = "60.0"))
+    float AttractorSpringConstant = 15.0f;
 
-    /** Force multiplier for the Effort/Expansiveness-driven outward repulsor. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics")
-    float RepulsorForceMultiplier = 1000.0f;
+    /**
+     * Global multiplier applied to the accumulated repulsor force before AddForce.
+     * This is the primary dial for visible particle travel distance.
+     *
+     * At 8000 (default) with AttractorSpringConstant = 15:
+     *   A moderate arm movement (Effort ≈ 0.5) produces ≈ 50–80 cm displacement.
+     *   A fast ballistic arm swing (Effort ≈ 1.0) hits the tether cap at 80 cm.
+     * At 1000 (old value): max displacement ≈ 3 cm — imperceptible.
+     *
+     * Tuning range: 5000–15000. Increase for a more explosive bubble response.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics",
+        meta = (ClampMin = "100.0", ClampMax = "30000.0"))
+    float RepulsorForceMultiplier = 8000.0f;
 
-    /** Drag coefficient applied to cube velocity, scaled by (1 - Effort). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics")
-    float BaseDragCoefficient = 10.0f;
+    /**
+     * Linear damping applied to each particle via SetLinearDamping().
+     * Uses the Chaos solver's implicit exponential integration — unconditionally
+     * stable, unlike manual drag via AddForce.
+     *
+     * 5.0 (default): lightly damped. Particles show clear spring oscillation
+     * before settling. Appropriate for an elastic, responsive bubble.
+     * 10–15: overdamped. Particles return to home with no oscillation.
+     * 10.0 (old value): overdamped — acceptable but particles feel heavy.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|Physics",
+        meta = (ClampMin = "0.5", ClampMax = "25.0"))
+    float BaseDragCoefficient = 5.0f;
 
     // -----------------------------------------------------------------------
     // Adaptive Normalization Parameters
@@ -148,14 +204,10 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "KinematicEI|Debug")
     float DebugFlow = 0.0f;
 
-    // -----------------------------------------------------------------------
-    // Operations
-    // -----------------------------------------------------------------------
-
 private:
 
     // -----------------------------------------------------------------------
-    // 1 Euro Filters � six joints for multi-joint descriptor coverage
+    // 1 Euro Filters — one per tracked joint
     // -----------------------------------------------------------------------
 
     FOneEuroFilterVector FilterSpine;
@@ -191,61 +243,38 @@ private:
     FVector PrevLElbowVelocity;
     FVector PrevRElbowVelocity;
 
- 
-    
     bool bFirstDescriptorFrame;
 
-    /** Set to true by RebuildHomeLocations() once valid home offsets exist.
- *  ExecuteKinematicPhysics() is gated on this flag to prevent force
- *  application before the formation anchor is established. */
+    /**
+     * Set to true by RebuildHomeLocations() once valid home offsets exist.
+     * ExecuteKinematicPhysics() is gated on this flag to prevent force
+     * application before the formation anchor is established.
+     */
     bool bHomeOffsetsReady;
 
-
-    // ---------------------------------------------------------------------------
-    // Per-limb velocity state � written every tick in ComputeLMADescriptors,
+    // -----------------------------------------------------------------------
+    // Per-limb velocity state — written every tick in ComputeLMADescriptors,
     // read every tick in ExecuteKinematicPhysics.
-    //
-    // Storing these as member variables avoids passing eight parameters between
-    // the two functions and keeps the tick call stack shallow.
-    // ---------------------------------------------------------------------------
+    // -----------------------------------------------------------------------
 
-/** Normalised velocity direction of the left wrist this tick. */
     FVector LWristVelocityDir;
-
-    /** Normalised velocity direction of the right wrist this tick. */
     FVector RWristVelocityDir;
-
-    /** Normalised velocity direction of the left elbow this tick. */
     FVector LElbowVelocityDir;
-
-    /** Normalised velocity direction of the right elbow this tick. */
     FVector RElbowVelocityDir;
 
-    /** Speed scalar (cm/s) of the left wrist this tick. */
     float LWristSpeed;
-
-    /** Speed scalar (cm/s) of the right wrist this tick. */
     float RWristSpeed;
-
-    /** Speed scalar (cm/s) of the left elbow this tick. */
     float LElbowSpeed;
-
-    /** Speed scalar (cm/s) of the right elbow this tick. */
     float RElbowSpeed;
 
     // -----------------------------------------------------------------------
     // Flow: Rolling sigma buffer
     // -----------------------------------------------------------------------
 
-    /**
-     * Circular buffer of aggregate velocity delta magnitudes for sigma computation.
-     * Each entry is the magnitude of the frame-to-frame change in the aggregate
-     * velocity across tracked joints. Sigma over this buffer is the Flow descriptor.
-     */
     TArray<float> FlowDeltaBuffer;
 
     // -----------------------------------------------------------------------
-    // Adaptive Normalization State � one (min, max) pair per descriptor
+    // Adaptive Normalization State — one (min, max) pair per descriptor
     // -----------------------------------------------------------------------
 
     float AdaptiveMin_Effort;
@@ -261,7 +290,11 @@ private:
     float AdaptiveMax_Flow;
 
     // -----------------------------------------------------------------------
-    // Pelvis-relative home offsets
+    // Particle home positions (absolute world coordinates).
+    // Named CubeHomeOffsets for backward compatibility with existing Blueprint
+    // calls to RebuildHomeLocations(). The values stored are absolute world
+    // positions — NOT pelvis-relative offsets despite the name.
+    // Set once in RebuildHomeLocations(). Never modified after that.
     // -----------------------------------------------------------------------
 
     TMap<AActor*, FVector> CubeHomeOffsets;
@@ -270,10 +303,6 @@ private:
     // Internal Helper Methods
     // -----------------------------------------------------------------------
 
-    /**
-     * Reads raw socket locations for all tracked joints, applies the 1 Euro
-     * Filter to each, and outputs cleaned world-space positions.
-     */
     void ReadAndFilterKinematics(
         float DeltaTime,
         FVector& OutSpine,
@@ -281,11 +310,6 @@ private:
         FVector& OutLElbow, FVector& OutRElbow,
         FVector& OutLShoulder, FVector& OutRShoulder);
 
-    /**
-     * Computes the four LMA descriptors from filtered joint positions.
-     * Applies adaptive EMA-based normalization to each raw descriptor value
-     * before writing to the Current* member variables.
-     */
     void ComputeLMADescriptors(
         float DeltaTime,
         const FVector& Spine,
@@ -293,39 +317,11 @@ private:
         const FVector& LElbow, const FVector& RElbow,
         const FVector& LShoulder, const FVector& RShoulder);
 
-    /**
-     * Writes the current descriptor values and PelvisWorldLocation to the
-     * GlobalMPC, and Effort/Flow to the Niagara User Parameters.
-     */
     void UpdateRenderSubsystems(const FVector& PelvisLocation);
 
-    /**
-     * Applies the spring-attractor force model to all registered AR cube actors.
-     * Requires cubes to have physics simulation enabled.
-     */
     void ExecuteKinematicPhysics();
 
-    /**
-     * Updates the adaptive normalization range for a single descriptor and
-     * returns the normalized value clamped to [0, 1].
-     *
-     * The range expands quickly (NormRangeExpandAlpha) when a new extreme is
-     * encountered and contracts slowly (NormRangeContractAlpha) otherwise.
-     * A minimum valid range of 1.0 is enforced to prevent division by near-zero
-     * during the warmup period before enough signal variation has been observed.
-     *
-     * @param RawValue    The unscaled descriptor value in physical units.
-     * @param AdaptiveMin Reference to the tracked minimum for this descriptor.
-     * @param AdaptiveMax Reference to the tracked maximum for this descriptor.
-     * @return            Normalized value in [0, 1].
-     */
     float NormalizeAdaptive(float RawValue, float& AdaptiveMin, float& AdaptiveMax) const;
 
-    /**
-     * Computes the standard deviation of the values in a TArray<float>.
-     * Returns 0.0 if the array has fewer than two elements.
-     * Uses ddof=0 (population standard deviation), consistent with the Python
-     * offline validation pipeline (np.std with default ddof=0).
-     */
     static float ComputeStdDev(const TArray<float>& Buffer);
 };
