@@ -72,12 +72,7 @@ void UProximityDispatchComponent::BeginPlay()
 
     // Initialise SystemMode in the MPC to Interactive Mode (1.0) at startup.
     // Compositing Mode is entered only via an explicit SetSystemMode(false) call.
-    if (GlobalMPC)
-    {
-        UKismetMaterialLibrary::SetScalarParameterValue(
-            GetWorld(), GlobalMPC, FName("SystemMode"), 1.0f);
-        bIsInteractive = true;
-    }
+    bIsInteractive = true;
 
     // Build the initial DMI cache if ARMeshActors was already populated in the
     // editor (i.e. for test setups with pre-placed particles). In production
@@ -272,15 +267,6 @@ float UProximityDispatchComponent::ComputeMinLimbDistance(
 void UProximityDispatchComponent::SetSystemMode(bool bInteractive)
 {
     bIsInteractive = bInteractive;
-
-    if (GlobalMPC)
-    {
-        // 1.0 = Interactive Mode — WPO channels 2 and 3 active in AR materials.
-        // 0.0 = Compositing Mode — WPO channels 2 and 3 gated to zero.
-        UKismetMaterialLibrary::SetScalarParameterValue(
-            GetWorld(), GlobalMPC, FName("SystemMode"),
-            bInteractive ? 1.0f : 0.0f);
-    }
 
     UE_LOG(LogTemp, Log,
         TEXT("UProximityDispatchComponent: Mode switched to %s."),
