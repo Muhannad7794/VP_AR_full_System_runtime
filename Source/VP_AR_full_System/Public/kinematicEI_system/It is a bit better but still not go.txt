@@ -1,0 +1,17 @@
+It is a bit better but still not good enough. I do not think the physics can set to balance both. Not based on all the changes you made so far anyway.
+So I am thinking of revising the setup to be as follows.
+the bubble does not move with the performer anymore. It just stays centered at the starting point where the hips appear at the fist pose.
+I will make the radios big enough so the particles fill up the frame. The particles that are in the proximity, those change their location and get pushed and pulled relative to the bubble center in accordance with the limbs movement. this way the same bubble exist for all performers.the bubble acts as a big ontainer that anchors the different particles in place. the particles move in all  four directions based on the limbs movement and their proximity to the perfromer(s)
+This should be eas enough and not cause driftign at all.
+MOTE: I would have prefered the original vision, but it does not seem like you are geting how to make this work. Can you fix it? Or should we switch?
+
+
+????????????????
+
+Pt.
+qualitive check
+/
+
+p1?01
+hard 2 /comariso alignment
+/
