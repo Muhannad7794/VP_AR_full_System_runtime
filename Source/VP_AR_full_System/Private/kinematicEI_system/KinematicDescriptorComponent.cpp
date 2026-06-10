@@ -631,6 +631,9 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         // More stable than manual drag via AddForce at variable frame rates.
         PrimComp->SetLinearDamping(BaseDragCoefficient);
 
+        // Explicitly wake the physics body before applying forces.
+		PrimComp->WakeRigidBody();
+
         // Apply all three forces as mass-independent accelerations.
         PrimComp->AddForce(
             AttractorForce + RepulsorForce + TetherForce,
