@@ -196,6 +196,9 @@ void UKinematicDescriptorComponent::TickComponent(
     if (TrackedSkeletons.Num() == 0)
     {
         TrackedSkeleton = nullptr;
+        // Run physics even without tracking so the attractor continues
+        // pulling displaced particles home when no performer is visible.
+        ExecuteKinematicPhysics();
         return;
     }
 
@@ -473,8 +476,7 @@ void UKinematicDescriptorComponent::UpdateRenderSubsystems(
 
 void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 {
-    if (!bHomeOffsetsReady)          return;
-    if (TrackedSkeletons.Num() == 0) return;
+    if (!bHomeOffsetsReady) return;
 
     // Read the limb proximity radius from ProximityDispatchComponent.
     // This ensures physics proximity and WOP proximity use the same radius value,
@@ -507,10 +509,8 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         WEIGHT_ELBOW
     };
 
-    for (int32 CubeIdx = 0; CubeIdx < ARCubes.Num(); ++CubeIdx)
+    for (AActor* Cube : ARCubes)
     {
-        AActor* Cube = ARCubes[CubeIdx];
-
         if (!Cube || !IsValid(Cube)) continue;
 
         UPrimitiveComponent* PrimComp =
@@ -520,27 +520,13 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 
         const FVector CurrentLoc = Cube->GetActorLocation();
 
-        FVector HomeLoc = CurrentLoc;
-
-        if (HomePositions.IsValidIndex(CubeIdx) && HomePositions[CubeIdx] != FVector::ZeroVector)
-        {
-            HomeLoc = HomePositions[CubeIdx];
-        }
-        else if (CubeHomeOffsets.Contains(Cube))
-        {
-            HomeLoc = CubeHomeOffsets[Cube];
-        }
-        else
-        {
-            UE_LOG(LogTemp, Warning,
-                TEXT("UKinematicDescriptorComponent: Cube %s has no home position. "
-                    "ARCubes.Num()=%d HomePositions.Num()=%d"),
-                *Cube->GetName(), ARCubes.Num(), HomePositions.Num());
-        }
+        // Look up home position by actor UniqueID.
+        // Falls back to CurrentLoc only if RebuildHomeLocations was not called
+        // before this tick, in which case the attractor produces zero force.
+        const FVector* HomePtr = HomePosById.Find(Cube->GetUniqueID());
+        const FVector HomeLoc = HomePtr ? *HomePtr : CurrentLoc;
 
         const FVector ToHome = HomeLoc - CurrentLoc;
-
-
         const float   DistToHome = ToHome.Size();
 
         // -------------------------------------------------------------------
@@ -663,7 +649,6 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
     }
 }
 
-
 // ============================================================================
 // RebuildHomeLocations
 // ============================================================================
@@ -686,24 +671,19 @@ void UKinematicDescriptorComponent::RebuildHomeLocations()
 
     int32 AnchoredCount = 0;
 
-    for (int32 i = 0; i < ARCubes.Num(); ++i)
+    for (AActor* Cube : ARCubes)
     {
-        AActor* Cube = ARCubes[i];
+        if (!Cube || !IsValid(Cube)) continue;
 
-        if (!Cube || !IsValid(Cube))
-        {
-            HomePositions[i] = FVector::ZeroVector;
-            continue;
-        }
-
-        const FVector SpawnLoc = Cube->GetActorLocation();
-
-        // Populate both the legacy TMap and the new index array.
-        // The index array is the authoritative lookup. The TMap is kept
-        // for backward compatibility with any external Blueprint reads.
-        CubeHomeOffsets.Add(Cube, SpawnLoc);
-        HomePositions[i] = SpawnLoc;
-
+        // Store home position keyed by actor UniqueID.
+        // UniqueID is a stable uint32 assigned at object creation and never changes.
+        // This avoids TMap raw-pointer equality failures that silently occur when
+        // Blueprint object wrappers are involved — the pointer stored at spawn time
+        // does not match the pointer seen during physics ticks, so Contains() returns
+        // false and HomeLoc falls back to CurrentLoc, zeroing the attractor force.
+        // UniqueID comparison is always reliable regardless of wrapping.
+        CubeHomeOffsets.Add(Cube, Cube->GetActorLocation());
+        HomePosById.Add(Cube->GetUniqueID(), Cube->GetActorLocation());
         ++AnchoredCount;
     }
 

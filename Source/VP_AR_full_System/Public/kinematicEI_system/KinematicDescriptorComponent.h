@@ -335,6 +335,7 @@ private:
     // -----------------------------------------------------------------------
 
     TMap<AActor*, FVector> CubeHomeOffsets;
+    TMap<uint32, FVector>  HomePosById;   // UniqueID-keyed home positions — reliable across Blueprint wrapping
 
     // Index-aligned home position array. Populated in RebuildHomeLocations()
     // in exact ARCubes order. Used as primary lookup in ExecuteKinematicPhysics()
