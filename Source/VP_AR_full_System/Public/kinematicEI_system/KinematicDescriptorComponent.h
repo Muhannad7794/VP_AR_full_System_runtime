@@ -72,6 +72,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "KinematicEI|Physics")
     void RebuildHomeLocations();
 
+    // Returns how many home positions were successfully captured.
+    // Should equal ARCubes.Num() after RebuildHomeLocations() succeeds.
+    UFUNCTION(BlueprintCallable, Category = "KinematicEI|Debug")
+    int32 GetHomePositionCount() const { return HomePositions.Num(); }
+
+    // Returns true when the physics gate is open and forces are being applied.
+    UFUNCTION(BlueprintCallable, Category = "KinematicEI|Debug")
+    bool IsPhysicsGateOpen() const { return bHomeOffsetsReady; }
+
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "KinematicEI|References")
     USkeletalMeshComponent* TrackedSkeleton;
 
@@ -325,6 +335,11 @@ private:
     // -----------------------------------------------------------------------
 
     TMap<AActor*, FVector> CubeHomeOffsets;
+
+    // Index-aligned home position array. Populated in RebuildHomeLocations()
+    // in exact ARCubes order. Used as primary lookup in ExecuteKinematicPhysics()
+    // to avoid TMap pointer equality failures from Blueprint object wrapping.
+    TArray<FVector> HomePositions;
 
     // -----------------------------------------------------------------------
     // Internal methods

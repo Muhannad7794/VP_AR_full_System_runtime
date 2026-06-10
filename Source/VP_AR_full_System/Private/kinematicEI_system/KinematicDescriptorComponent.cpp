@@ -507,8 +507,10 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
         WEIGHT_ELBOW
     };
 
-    for (AActor* Cube : ARCubes)
+    for (int32 CubeIdx = 0; CubeIdx < ARCubes.Num(); ++CubeIdx)
     {
+        AActor* Cube = ARCubes[CubeIdx];
+
         if (!Cube || !IsValid(Cube)) continue;
 
         UPrimitiveComponent* PrimComp =
@@ -518,11 +520,27 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 
         const FVector CurrentLoc = Cube->GetActorLocation();
 
-        const FVector HomeLoc = CubeHomeOffsets.Contains(Cube)
-            ? CubeHomeOffsets[Cube]
-            : CurrentLoc;
+        FVector HomeLoc = CurrentLoc;
+
+        if (HomePositions.IsValidIndex(CubeIdx) && HomePositions[CubeIdx] != FVector::ZeroVector)
+        {
+            HomeLoc = HomePositions[CubeIdx];
+        }
+        else if (CubeHomeOffsets.Contains(Cube))
+        {
+            HomeLoc = CubeHomeOffsets[Cube];
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("UKinematicDescriptorComponent: Cube %s has no home position. "
+                    "ARCubes.Num()=%d HomePositions.Num()=%d"),
+                *Cube->GetName(), ARCubes.Num(), HomePositions.Num());
+        }
 
         const FVector ToHome = HomeLoc - CurrentLoc;
+
+
         const float   DistToHome = ToHome.Size();
 
         // -------------------------------------------------------------------
@@ -653,33 +671,51 @@ void UKinematicDescriptorComponent::ExecuteKinematicPhysics()
 void UKinematicDescriptorComponent::RebuildHomeLocations()
 {
     CubeHomeOffsets.Empty();
+    HomePositions.Empty();
 
     if (ARCubes.Num() == 0)
     {
         UE_LOG(LogTemp, Warning,
-            TEXT("UKinematicDescriptorComponent: RebuildHomeLocations called "
-                "with empty ARCubes array."));
+            TEXT("UKinematicDescriptorComponent: RebuildHomeLocations — "
+                "ARCubes array is empty. Physics gate remains closed."));
         return;
     }
 
+    // Pre-allocate to guarantee index alignment with ARCubes.
+    HomePositions.SetNum(ARCubes.Num());
+
     int32 AnchoredCount = 0;
 
-    for (AActor* Cube : ARCubes)
+    for (int32 i = 0; i < ARCubes.Num(); ++i)
     {
-        if (!Cube || !IsValid(Cube)) continue;
+        AActor* Cube = ARCubes[i];
 
-        // Store the absolute world position at spawn time as the permanent home.
-        // This is the static bubble model — home never changes after this call.
-        CubeHomeOffsets.Add(Cube, Cube->GetActorLocation());
+        if (!Cube || !IsValid(Cube))
+        {
+            HomePositions[i] = FVector::ZeroVector;
+            continue;
+        }
+
+        const FVector SpawnLoc = Cube->GetActorLocation();
+
+        // Populate both the legacy TMap and the new index array.
+        // The index array is the authoritative lookup. The TMap is kept
+        // for backward compatibility with any external Blueprint reads.
+        CubeHomeOffsets.Add(Cube, SpawnLoc);
+        HomePositions[i] = SpawnLoc;
+
         ++AnchoredCount;
     }
 
-    bHomeOffsetsReady = true;
+    // Only open the physics gate if at least one particle was anchored.
+    bHomeOffsetsReady = (AnchoredCount > 0);
 
     UE_LOG(LogTemp, Log,
         TEXT("UKinematicDescriptorComponent: RebuildHomeLocations — "
-            "%d / %d particles anchored. Physics gate open."),
-        AnchoredCount, ARCubes.Num());
+            "%d / %d particles anchored. Physics gate: %s."),
+        AnchoredCount,
+        ARCubes.Num(),
+        bHomeOffsetsReady ? TEXT("OPEN") : TEXT("CLOSED"));
 }
 
 
