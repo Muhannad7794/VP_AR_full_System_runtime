@@ -1,4 +1,5 @@
 ﻿#include "ZEDLiveLinkSource.h"
+#include "ZEDLiveLinkSyncSubsystem.h"
 
 #include <string>
 
@@ -253,6 +254,18 @@ void FZEDLiveLinkSource::ProcessReceivedData(TSharedPtr<TArray<uint8>> ReceivedD
 				}
 
 				Client->PushSubjectFrameData_AnyThread(Key, MoveTemp(FrameData));
+
+				// --- Sync measurement hook: broadcast exactly once per genuine, valid,
+				// newly processed packet from the Jetson, independent of whether the
+				// pose itself changed. Consumed in Blueprint via the engine subsystem
+				// to stamp real arrival time on the tracking side.
+				if (GEngine)
+				{
+					if (UZEDLiveLinkSyncSubsystem* Sync = GEngine->GetEngineSubsystem<UZEDLiveLinkSyncSubsystem>())
+					{
+						Sync->OnZEDFrameArrived.Broadcast();
+					}
+				}
 			}
 			CurrentTimeStamp = frameData.Timestamp;
 		}
